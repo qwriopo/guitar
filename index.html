@@ -230,6 +230,42 @@
     color: rgba(255,255,255,0.4);
     display: none;
   }
+
+  .tone-selector {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    pointer-events: all;
+    z-index: 10;
+  }
+  .tone-btn {
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: rgba(0,0,0,0.6);
+    color: rgba(255,255,255,0.5);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    pointer-events: all;
+    transition: all 0.15s;
+  }
+  .tone-btn:hover {
+    color: #fff;
+    border-color: rgba(255,255,255,0.5);
+  }
+  .tone-btn.active {
+    background: rgba(0,255,180,0.2);
+    border-color: #00ffb4;
+    color: #00ffb4;
+    box-shadow: 0 0 10px rgba(0,255,180,0.3);
+  }
 </style>
 </head>
 <body>
@@ -243,7 +279,13 @@
       <p>왼손 핀치 위치로 코드 선택 · 오른손 다운스트로크로 연주</p>
     </div>
 
-    <div class="chord-grid" id="chordGrid"></div>
+    <div class="tone-selector">
+      <button class="tone-btn active" onclick="setTone('electric')" id="btn-electric">⚡ 일렉</button>
+      <button class="tone-btn" onclick="setTone('acoustic')" id="btn-acoustic">🎸 어쿠스틱</button>
+      <button class="tone-btn" onclick="setTone('jazz')" id="btn-jazz">🎷 재즈일렉</button>
+    </div>
+
+        <div class="chord-grid" id="chordGrid"></div>
 
     <div class="strum-viz" id="strumViz"></div>
 
@@ -347,25 +389,139 @@ function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
+let currentTone = 'electric';
+
+function setTone(tone) {
+  currentTone = tone;
+  document.querySelectorAll('.tone-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + tone).classList.add('active');
+}
+
+function makeDistortionCurve(amount) {
+  const samples = 256;
+  const curve = new Float32Array(samples);
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
 function playChordSound(chordName) {
   if (!audioCtx || !CHORD_FREQS[chordName]) return;
   const freqs = CHORD_FREQS[chordName];
-  freqs.forEach((freq, i) => {
-    setTimeout(() => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      const t = audioCtx.currentTime;
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, t);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.998, t + 1.2);
-      gain.gain.setValueAtTime(0.18, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start(t);
-      osc.stop(t + 1.5);
-    }, i * 28);
-  });
+
+  if (currentTone === 'electric') {
+    // 디스토션 일렉 기타
+    freqs.forEach((freq, i) => {
+      setTimeout(() => {
+        const t = audioCtx.currentTime;
+        const osc1 = audioCtx.createOscillator();
+        const osc2 = audioCtx.createOscillator();
+        osc1.type = 'sawtooth';
+        osc2.type = 'sawtooth';
+        osc1.frequency.setValueAtTime(freq, t);
+        osc2.frequency.setValueAtTime(freq * 1.006, t);
+
+        const dist = audioCtx.createWaveShaper();
+        dist.curve = makeDistortionCurve(300);
+        dist.oversample = '4x';
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 2200;
+        filter.Q.value = 0.8;
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.22, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+
+        const merger = audioCtx.createChannelMerger(2);
+        osc1.connect(dist);
+        osc2.connect(dist);
+        dist.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc1.start(t); osc1.stop(t + 1.3);
+        osc2.start(t); osc2.stop(t + 1.3);
+      }, i * 25);
+    });
+
+  } else if (currentTone === 'acoustic') {
+    // 어쿠스틱 기타 - 따뜻한 플럭 느낌
+    freqs.forEach((freq, i) => {
+      setTimeout(() => {
+        const t = audioCtx.currentTime;
+        // 기본음
+        const osc = audioCtx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t);
+
+        // 배음 (2배음, 3배음)
+        const osc2 = audioCtx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(freq * 2, t);
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(3000, t);
+        filter.frequency.exponentialRampToValueAtTime(800, t + 0.6);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.28, t);
+        gain.gain.setValueAtTime(0.18, t + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+
+        const gain2 = audioCtx.createGain();
+        gain2.gain.setValueAtTime(0.08, t);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+
+        osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+        osc2.connect(gain2); gain2.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t + 2.0);
+        osc2.start(t); osc2.stop(t + 1.0);
+      }, i * 32);
+    });
+
+  } else if (currentTone === 'jazz') {
+    // 재즈일렉 - 따뜻하고 컴프레스된 할로우바디 느낌
+    freqs.forEach((freq, i) => {
+      setTimeout(() => {
+        const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+
+        const osc2 = audioCtx.createOscillator();
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(freq, t);
+
+        // 따뜻한 로우패스
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1800;
+        filter.Q.value = 0.5;
+
+        // 살짝 오버드라이브
+        const dist = audioCtx.createWaveShaper();
+        dist.curve = makeDistortionCurve(60);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.3, t);
+        gain.gain.setValueAtTime(0.22, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+
+        const gain2 = audioCtx.createGain();
+        gain2.gain.setValueAtTime(0.12, t);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+
+        osc.connect(dist); dist.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+        osc2.connect(gain2); gain2.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t + 1.8);
+        osc2.start(t); osc2.stop(t + 1.4);
+      }, i * 30);
+    });
+  }
 }
 
 function vibrateStrings() {

@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Air Guitar Motion Studio</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+  #container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+  }
+  #video {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0.7;
+  }
+  #canvas {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0; left: 0;
+  }
+  #ui {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .title-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 16px 20px 12px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, transparent 100%);
+  }
+  .title-bar h1 {
+    font-size: clamp(22px, 5vw, 36px);
+    font-weight: 900;
+    letter-spacing: -1px;
+    color: #fff;
+    text-transform: uppercase;
+  }
+  .title-bar p {
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+    margin-top: 2px;
+  }
+  .chord-grid {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 3px;
+    border: 2px solid rgba(0, 255, 180, 0.6);
+    border-radius: 6px;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.45);
+    width: min(92vw, 640px);
+  }
+  .chord-cell {
+    padding: 8px 4px;
+    text-align: center;
+    font-size: clamp(11px, 2.5vw, 15px);
+    font-weight: 700;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: background 0.1s, border-color 0.1s;
+    cursor: default;
+    letter-spacing: 0.5px;
+    color: rgba(255,255,255,0.85);
+    min-width: 0;
+  }
+  .chord-cell.active {
+    background: rgba(0, 255, 180, 0.3);
+    border-color: rgba(0, 255, 180, 0.9);
+    color: #00ffb4;
+    box-shadow: 0 0 12px rgba(0, 255, 180, 0.5);
+  }
+  .chord-cell.playing {
+    background: rgba(255, 200, 0, 0.4);
+    border-color: rgba(255, 200, 0, 1);
+    color: #ffc800;
+    box-shadow: 0 0 18px rgba(255, 200, 0, 0.6);
+    animation: strum-flash 0.15s ease-out;
+  }
+  @keyframes strum-flash {
+    0% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+  .bottom-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 16px 14px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, transparent 100%);
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+  }
+  .status-box {
+    flex: 1;
+    text-align: center;
+  }
+  .status-label {
+    font-size: 10px;
+    color: rgba(255,255,255,0.45);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+  }
+  .status-value {
+    font-size: clamp(14px, 3.5vw, 20px);
+    font-weight: 700;
+    color: #fff;
+  }
+  .status-value.highlight { color: #00ffb4; }
+  .fret-indicator {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+  }
+  .fret-indicator span {
+    font-size: 20px;
+    font-weight: 900;
+    color: #fff;
+    display: block;
+    text-align: center;
+  }
+  .strum-viz {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+  }
+  .string-line {
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.15);
+    transition: background 0.08s, width 0.08s;
+  }
+  .string-line.vibrating {
+    background: #ffc800;
+    box-shadow: 0 0 8px #ffc800;
+  }
+  #start-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 100;
+    pointer-events: all;
+  }
+  #start-overlay h2 {
+    font-size: clamp(20px, 5vw, 32px);
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: -1px;
+  }
+  #start-overlay p {
+    font-size: 14px;
+    color: rgba(255,255,255,0.55);
+    text-align: center;
+    max-width: 300px;
+    line-height: 1.6;
+  }
+  #start-btn {
+    margin-top: 8px;
+    padding: 14px 40px;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background: #00ffb4;
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    pointer-events: all;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  #start-btn:hover {
+    transform: scale(1.04);
+    box-shadow: 0 0 24px rgba(0,255,180,0.5);
+  }
+  .guide-box {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.7);
+    line-height: 1.8;
+    text-align: left;
+  }
+  .guide-box strong { color: #00ffb4; }
+  #loading-text {
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="ui">
+    <div class="title-bar">
+      <h1>Air Guitar Motion Studio</h1>
+      <p>왼손 핀치 위치로 코드 선택 · 오른손 다운스트로크로 연주</p>
+    </div>
+
+    <div class="chord-grid" id="chordGrid"></div>
+
+    <div class="strum-viz" id="strumViz"></div>
+
+    <div class="fret-indicator">
+      핀치 1.0 · 스트럼 <span id="strumCount">0</span>
+    </div>
+
+    <div class="bottom-bar">
+      <div class="status-box">
+        <div class="status-label">현재 코드</div>
+        <div class="status-value highlight" id="currentChord">-</div>
+      </div>
+      <div class="status-box">
+        <div class="status-label">오른손</div>
+        <div class="status-value" id="rightHandState">피크 그립</div>
+      </div>
+      <div class="status-box">
+        <div class="status-label">왼손</div>
+        <div class="status-value" id="leftHandState">핀치 인식</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="start-overlay">
+    <h2>🎸 Air Guitar Studio</h2>
+    <div class="guide-box">
+      <strong>왼손</strong> — 핀치(엄지+검지)로 코드 그리드 위 위치 선택<br>
+      <strong>오른손</strong> — 위→아래 다운스트로크로 연주<br>
+      <strong>카메라</strong> — 양손이 화면에 보이도록 배치
+    </div>
+    <p id="loading-text">MediaPipe 로딩 중...</p>
+    <button id="start-btn" onclick="startApp()">카메라 시작</button>
+  </div>
+</div>
+
+<script>
+const CHORDS = [
+  ['C','D','E','F','G','A','E7','B7'],
+  ['C7','Dm','Em','Fm','G7','A7','Am','F']
+];
+
+const CHORD_FREQS = {
+  'C':   [261.6, 329.6, 392.0, 523.3, 659.3],
+  'D':   [293.7, 369.9, 440.0, 587.3, 740.0],
+  'E':   [329.6, 415.3, 493.9, 659.3, 830.6],
+  'F':   [349.2, 440.0, 523.3, 698.5, 880.0],
+  'G':   [392.0, 493.9, 587.3, 784.0, 987.8],
+  'A':   [440.0, 554.4, 659.3, 880.0, 1108.7],
+  'E7':  [329.6, 415.3, 493.9, 622.3, 830.6],
+  'B7':  [246.9, 370.0, 440.0, 554.4, 740.0],
+  'C7':  [261.6, 329.6, 392.0, 466.2, 659.3],
+  'Dm':  [293.7, 349.2, 440.0, 587.3, 698.5],
+  'Em':  [329.6, 392.0, 493.9, 659.3, 784.0],
+  'Fm':  [349.2, 415.3, 523.3, 698.5, 830.6],
+  'G7':  [392.0, 466.2, 587.3, 784.0, 932.3],
+  'A7':  [440.0, 523.3, 659.3, 880.0, 1046.5],
+  'Am':  [440.0, 523.3, 659.3, 880.0, 1046.5],
+  'F':   [349.2, 440.0, 523.3, 698.5, 880.0]
+};
+
+let audioCtx = null;
+let hands = null;
+let camera = null;
+let currentChord = null;
+let strumCount = 0;
+let lastRightY = null;
+let strumCooldown = false;
+let playingCell = null;
+let vibratingStrings = [];
+let strumTimeout = null;
+
+const cells = [];
+
+function buildGrid() {
+  const grid = document.getElementById('chordGrid');
+  CHORDS.forEach((row, ri) => {
+    row.forEach((ch, ci) => {
+      const cell = document.createElement('div');
+      cell.className = 'chord-cell';
+      cell.textContent = ch;
+      cell.id = `cell-${ri}-${ci}`;
+      grid.appendChild(cell);
+      cells.push({el: cell, chord: ch, row: ri, col: ci});
+    });
+  });
+}
+
+function buildStrings() {
+  const viz = document.getElementById('strumViz');
+  for (let i = 0; i < 6; i++) {
+    const s = document.createElement('div');
+    s.className = 'string-line';
+    const w = 40 + i * 8;
+    s.style.width = w + 'px';
+    viz.appendChild(s);
+    vibratingStrings.push(s);
+  }
+}
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playChordSound(chordName) {
+  if (!audioCtx || !CHORD_FREQS[chordName]) return;
+  const freqs = CHORD_FREQS[chordName];
+  freqs.forEach((freq, i) => {
+    setTimeout(() => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const t = audioCtx.currentTime;
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.998, t + 1.2);
+      gain.gain.setValueAtTime(0.18, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 1.5);
+    }, i * 28);
+  });
+}
+
+function vibrateStrings() {
+  vibratingStrings.forEach(s => s.classList.add('vibrating'));
+  setTimeout(() => vibratingStrings.forEach(s => s.classList.remove('vibrating')), 350);
+}
+
+function flashCell(chordName) {
+  cells.forEach(c => {
+    c.el.classList.remove('playing');
+    if (c.chord === chordName) c.el.classList.add('playing');
+  });
+  if (strumTimeout) clearTimeout(strumTimeout);
+  strumTimeout = setTimeout(() => {
+    cells.forEach(c => {
+      if (c.chord === chordName) {
+        c.el.classList.remove('playing');
+        if (currentChord === chordName) c.el.classList.add('active');
+      }
+    });
+  }, 400);
+}
+
+function setActiveChord(chordName) {
+  currentChord = chordName;
+  document.getElementById('currentChord').textContent = chordName || '-';
+  cells.forEach(c => {
+    c.el.classList.remove('active', 'playing');
+    if (c.chord === chordName) c.el.classList.add('active');
+  });
+}
+
+function detectPinch(landmarks) {
+  const thumb = landmarks[4];
+  const index = landmarks[8];
+  const dx = thumb.x - index.x;
+  const dy = thumb.y - index.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const midX = (thumb.x + index.x) / 2;
+  const midY = (thumb.y + index.y) / 2;
+  return { pinching: dist < 0.07, midX, midY };
+}
+
+function getChordFromPosition(nx, ny) {
+  const gridEl = document.getElementById('chordGrid');
+  const rect = gridEl.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const px = nx * vw;
+  const py = ny * vh;
+  if (px < rect.left || px > rect.right || py < rect.top || py > rect.bottom) return null;
+  const relX = (px - rect.left) / rect.width;
+  const relY = (py - rect.top) / rect.height;
+  const col = Math.floor(relX * 8);
+  const row = Math.floor(relY * 2);
+  if (row >= 0 && row < 2 && col >= 0 && col < 8) return CHORDS[row][col];
+  return null;
+}
+
+function detectStrum(landmarks, handLabel) {
+  const wrist = landmarks[0];
+  return { y: wrist.y };
+}
+
+function onResults(results) {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!results.multiHandLandmarks) return;
+
+  let leftLandmarks = null;
+  let rightLandmarks = null;
+
+  results.multiHandLandmarks.forEach((landmarks, i) => {
+    const label = results.multiHandedness[i].label;
+    // 비디오가 scaleX(-1) 미러링이므로 x 좌표 반전
+    const ml = landmarks.map(lm => ({...lm, x: 1 - lm.x}));
+    if (label === 'Right') leftLandmarks = ml;
+    else rightLandmarks = ml;
+
+    drawConnectors(ctx, ml, HAND_CONNECTIONS, {color: 'rgba(0,255,180,0.4)', lineWidth: 1.5});
+    drawLandmarks(ctx, ml, {color: 'rgba(0,255,180,0.8)', lineWidth: 1, radius: 3});
+  });
+
+  if (leftLandmarks) {
+    const { pinching, midX, midY } = detectPinch(leftLandmarks);
+    document.getElementById('leftHandState').textContent = pinching ? '핀치 감지!' : '핀치 인식';
+    if (pinching) {
+      const chord = getChordFromPosition(midX, midY);
+      if (chord) setActiveChord(chord);
+    }
+    const ix = leftLandmarks[8].x * canvas.width;
+    const iy = leftLandmarks[8].y * canvas.height;
+    ctx.beginPath();
+    ctx.arc(ix, iy, 10, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,255,180,0.5)';
+    ctx.fill();
+    ctx.strokeStyle = '#00ffb4';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  if (rightLandmarks) {
+    const { y } = detectStrum(rightLandmarks, 'Right');
+    document.getElementById('rightHandState').textContent = '피크 그립';
+    if (lastRightY !== null) {
+      const dy = y - lastRightY;
+      if (dy > 0.04 && !strumCooldown && currentChord) {
+        strumCooldown = true;
+        strumCount++;
+        document.getElementById('strumCount').textContent = strumCount;
+        playChordSound(currentChord);
+        vibrateStrings();
+        flashCell(currentChord);
+        setTimeout(() => { strumCooldown = false; }, 300);
+      }
+    }
+    lastRightY = y;
+  } else {
+    lastRightY = null;
+  }
+}
+
+async function startApp() {
+  initAudio();
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('loading-text').style.display = 'block';
+  document.getElementById('loading-text').textContent = 'MediaPipe 로딩 중...';
+
+  hands = new Hands({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+  hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.5
+  });
+  hands.onResults(onResults);
+
+  const videoEl = document.getElementById('video');
+  camera = new Camera(videoEl, {
+    onFrame: async () => { await hands.send({image: videoEl}); },
+    width: 1280,
+    height: 720
+  });
+
+  try {
+    await camera.start();
+    document.getElementById('start-overlay').style.display = 'none';
+  } catch(e) {
+    document.getElementById('loading-text').textContent = '카메라 오류: ' + e.message;
+    document.getElementById('start-btn').disabled = false;
+  }
+}
+
+buildGrid();
+buildStrings();
+</script>
+</body>
+</html>

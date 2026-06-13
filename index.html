@@ -1,686 +1,1980 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
+<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Air Guitar Motion Studio</title>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>카탄 — 개척자들의 섬</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0a0a0a;
-    color: #fff;
-    font-family: 'Courier New', monospace;
-    overflow: hidden;
-    height: 100vh;
-    width: 100vw;
-  }
-  #container {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
-  }
-  #video {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1);
-    opacity: 0.7;
-  }
-  #canvas {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0; left: 0;
-  }
-  #ui {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-  }
-  .title-bar {
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    padding: 16px 20px 12px;
-    background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, transparent 100%);
-  }
-  .title-bar h1 {
-    font-size: clamp(22px, 5vw, 36px);
-    font-weight: 900;
-    letter-spacing: -1px;
-    color: #fff;
-    text-transform: uppercase;
-  }
-  .title-bar p {
-    font-size: 13px;
-    color: rgba(255,255,255,0.6);
-    margin-top: 2px;
-  }
-  .chord-grid {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 3px;
-    border: 2px solid rgba(0, 255, 180, 0.6);
-    border-radius: 6px;
-    padding: 4px;
-    background: rgba(0, 0, 0, 0.45);
-    width: min(92vw, 640px);
-  }
-  .chord-cell {
-    padding: 8px 4px;
-    text-align: center;
-    font-size: clamp(11px, 2.5vw, 15px);
-    font-weight: 700;
-    border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.1);
-    transition: background 0.1s, border-color 0.1s;
-    cursor: default;
-    letter-spacing: 0.5px;
-    color: rgba(255,255,255,0.85);
-    min-width: 0;
-  }
-  .chord-cell.active {
-    background: rgba(0, 255, 180, 0.3);
-    border-color: rgba(0, 255, 180, 0.9);
-    color: #00ffb4;
-    box-shadow: 0 0 12px rgba(0, 255, 180, 0.5);
-  }
-  .chord-cell.playing {
-    background: rgba(255, 200, 0, 0.4);
-    border-color: rgba(255, 200, 0, 1);
-    color: #ffc800;
-    box-shadow: 0 0 18px rgba(255, 200, 0, 0.6);
-    animation: strum-flash 0.15s ease-out;
-  }
-  @keyframes strum-flash {
-    0% { transform: scale(1.08); }
-    100% { transform: scale(1); }
-  }
-  .bottom-bar {
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    padding: 10px 16px 14px;
-    background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, transparent 100%);
-    display: flex;
-    gap: 16px;
-    align-items: flex-end;
-  }
-  .status-box {
-    flex: 1;
-    text-align: center;
-  }
-  .status-label {
-    font-size: 10px;
-    color: rgba(255,255,255,0.45);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-bottom: 4px;
-  }
-  .status-value {
-    font-size: clamp(14px, 3.5vw, 20px);
-    font-weight: 700;
-    color: #fff;
-  }
-  .status-value.highlight { color: #00ffb4; }
-  .fret-indicator {
-    position: absolute;
-    top: 16px; right: 16px;
-    background: rgba(0,0,0,0.7);
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 6px;
-    padding: 8px 14px;
-    font-size: 11px;
-    color: rgba(255,255,255,0.5);
-  }
-  .fret-indicator span {
-    font-size: 20px;
-    font-weight: 900;
-    color: #fff;
-    display: block;
-    text-align: center;
-  }
-  .strum-viz {
-    position: absolute;
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: flex-end;
-  }
-  .string-line {
-    height: 3px;
-    border-radius: 2px;
-    background: rgba(255,255,255,0.15);
-    transition: background 0.08s, width 0.08s;
-  }
-  .string-line.vibrating {
-    background: #ffc800;
-    box-shadow: 0 0 8px #ffc800;
-  }
-  #start-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0,0,0,0.92);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    z-index: 100;
-    pointer-events: all;
-  }
-  #start-overlay h2 {
-    font-size: clamp(20px, 5vw, 32px);
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: -1px;
-  }
-  #start-overlay p {
-    font-size: 14px;
-    color: rgba(255,255,255,0.55);
-    text-align: center;
-    max-width: 300px;
-    line-height: 1.6;
-  }
-  #start-btn {
-    margin-top: 8px;
-    padding: 14px 40px;
-    font-size: 16px;
-    font-weight: 700;
-    font-family: 'Courier New', monospace;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    background: #00ffb4;
-    color: #000;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    pointer-events: all;
-    transition: transform 0.1s, box-shadow 0.1s;
-  }
-  #start-btn:hover {
-    transform: scale(1.04);
-    box-shadow: 0 0 24px rgba(0,255,180,0.5);
-  }
-  .guide-box {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 8px;
-    padding: 12px 20px;
-    font-size: 13px;
-    color: rgba(255,255,255,0.7);
-    line-height: 1.8;
-    text-align: left;
-  }
-  .guide-box strong { color: #00ffb4; }
-  #loading-text {
-    font-size: 13px;
-    color: rgba(255,255,255,0.4);
-    display: none;
-  }
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#1a1408;--parch:#f5e8c8;--parch2:#ede0b0;--parch3:#d9c98a;
+  --brown:#6b3a1f;--brown2:#8b4e2a;--brown3:#a06030;
+  --gold:#c8940a;--gold2:#f0c030;--gold3:#fff0a0;
+  --sea:#1a5c8c;--sea2:#2478b4;--sea3:#3a9cd4;
+  --red:#c0392b;--blue:#2471a3;--white:#bdc3c7;--orange:#d35400;
+  --shadow:0 4px 24px rgba(0,0,0,.55);
+  --tile-r:rgba(0,0,0,.18);
+}
+html,body{width:100%;height:100%;background:var(--sea);font-family:'Noto Sans KR',system-ui,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100%}
+.screen{display:none}.screen.active{display:flex;flex-direction:column}
 
-  .tone-selector {
-    position: absolute;
-    top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 6px;
-    pointer-events: all;
-    z-index: 10;
-  }
-  .tone-btn {
-    padding: 6px 14px;
-    font-size: 11px;
-    font-weight: 700;
-    font-family: 'Courier New', monospace;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    background: rgba(0,0,0,0.6);
-    color: rgba(255,255,255,0.5);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 4px;
-    cursor: pointer;
-    pointer-events: all;
-    transition: all 0.15s;
-  }
-  .tone-btn:hover {
-    color: #fff;
-    border-color: rgba(255,255,255,0.5);
-  }
-  .tone-btn.active {
-    background: rgba(0,255,180,0.2);
-    border-color: #00ffb4;
-    color: #00ffb4;
-    box-shadow: 0 0 10px rgba(0,255,180,0.3);
-  }
+/* ── LOBBY ── */
+#lobby{
+  align-items:center;justify-content:center;gap:20px;padding:28px 20px;min-height:100vh;
+  background:radial-gradient(ellipse at 40% 30%,#1a5c8c 0%,#0d3a5c 60%,#071e30 100%);
+}
+.logo{text-align:center}
+.logo h1{
+  font-family:'Cinzel',serif;font-size:42px;font-weight:900;letter-spacing:3px;
+  color:var(--gold2);text-shadow:0 2px 12px rgba(200,148,10,.6),0 0 40px rgba(200,148,10,.2);
+}
+.logo p{font-size:12px;color:rgba(255,255,255,.5);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+.lcard{
+  background:linear-gradient(160deg,#2a1a08 0%,#1e1206 100%);
+  border:1px solid var(--brown3);border-radius:14px;padding:22px;
+  width:100%;max-width:330px;box-shadow:var(--shadow),inset 0 1px 0 rgba(200,148,10,.15);
+}
+.lcard h2{
+  font-family:'Cinzel',serif;font-size:11px;font-weight:700;color:var(--gold);
+  text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;
+}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;color:rgba(255,255,255,.45);margin-bottom:4px;letter-spacing:.5px}
+.field input,.field select{
+  width:100%;padding:9px 12px;border:1px solid var(--brown3);border-radius:7px;
+  background:rgba(255,255,255,.06);color:#eee;font-size:13px;
+  font-family:'Noto Sans KR',sans-serif;transition:border-color .2s;
+}
+.field input:focus,.field select:focus{outline:none;border-color:var(--gold)}
+.field select option{background:#1e1206;color:#eee}
+.btn{
+  width:100%;padding:10px;border-radius:8px;font-size:13px;cursor:pointer;
+  font-family:'Noto Sans KR',sans-serif;font-weight:500;transition:all .18s;margin-bottom:7px;
+  border:1px solid var(--brown3);background:rgba(255,255,255,.07);color:#eee;
+}
+.btn:hover{background:rgba(255,255,255,.13);border-color:var(--gold)}
+.btn.primary{
+  background:linear-gradient(160deg,var(--brown2),var(--brown));
+  color:var(--gold2);border-color:var(--gold);
+  box-shadow:0 2px 10px rgba(200,148,10,.25);
+}
+.btn.primary:hover{background:linear-gradient(160deg,var(--brown3),var(--brown2));box-shadow:0 4px 18px rgba(200,148,10,.4)}
+.divider{text-align:center;font-size:11px;color:rgba(255,255,255,.25);margin:3px 0;letter-spacing:1px}
+.rid{
+  font-family:'Cinzel',serif;font-size:28px;font-weight:900;letter-spacing:8px;
+  color:var(--gold2);text-align:center;background:rgba(0,0,0,.3);
+  border:1px solid var(--brown3);border-radius:8px;padding:12px;margin-bottom:12px;
+  text-shadow:0 0 20px rgba(200,148,10,.5);
+}
+.wlist{list-style:none;margin-bottom:12px}
+.wlist li{
+  padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.07);
+  font-size:13px;display:flex;align-items:center;gap:8px;color:#ddd;
+}
+.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;box-shadow:0 0 6px currentColor}
+
+/* ── GAME LAYOUT ── */
+#game{flex-direction:row;height:100vh;overflow:hidden}
+#board-area{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at center,#1e6fa8 0%,#0d3a5c 100%);
+  position:relative;overflow:hidden;
+}
+/* 내 차례 / 상대 차례 보드 테두리 펄스 */
+#board-area.my-turn-glow::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  border:4px solid var(--gold2);border-radius:4px;
+  animation:borderPulse 2s ease-in-out infinite;opacity:.7;
+}
+#board-area.opp-turn-dim::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:rgba(0,0,0,.28);
+}
+@keyframes borderPulse{0%,100%{opacity:.35}50%{opacity:.9}}
+#sidebar{
+  width:212px;display:flex;flex-direction:column;gap:5px;
+  padding:7px 7px 7px 0;overflow-y:auto;background:rgba(0,0,0,.0);flex-shrink:0;
+  scrollbar-width:thin;scrollbar-color:var(--brown3) transparent;
+}
+#sidebar::-webkit-scrollbar{width:4px}
+#sidebar::-webkit-scrollbar-thumb{background:var(--brown3);border-radius:2px}
+.panel{
+  background:linear-gradient(160deg,rgba(30,12,4,.92) 0%,rgba(20,8,2,.95) 100%);
+  border:1px solid var(--brown3);border-radius:10px;padding:10px;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(0,0,0,.4);
+}
+.panel h3{
+  font-family:'Cinzel',serif;font-size:9px;font-weight:700;color:var(--gold);
+  text-transform:uppercase;letter-spacing:1.5px;margin-bottom:7px;
+}
+
+/* ── 내 차례 표시 ── */
+.turn-banner{
+  border-radius:10px;padding:9px 10px;text-align:center;flex-shrink:0;
+  border:1px solid var(--brown3);font-size:12px;font-weight:700;letter-spacing:.5px;
+  transition:all .3s;
+}
+.turn-banner.my-turn{
+  background:linear-gradient(135deg,#6b3a1f,#8b4e2a);
+  border-color:var(--gold2);color:var(--gold2);
+  box-shadow:0 0 18px rgba(200,148,10,.45);
+  animation:myTurnPulse 2.5s ease-in-out infinite;
+}
+.turn-banner.opp-turn{
+  background:rgba(0,0,0,.5);
+  border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.55);
+}
+@keyframes myTurnPulse{0%,100%{box-shadow:0 0 10px rgba(200,148,10,.3)}50%{box-shadow:0 0 24px rgba(200,148,10,.7)}}
+
+/* ── 플레이어 색상 오버레이 (상대 차례) ── */
+#turn-color-bar{
+  height:4px;border-radius:2px;margin-bottom:5px;flex-shrink:0;
+  transition:background .3s;opacity:.8;
+}
+
+.phase-lbl{
+  font-size:10px;color:rgba(255,255,255,.45);text-align:center;
+  margin-bottom:4px;flex-shrink:0;letter-spacing:.3px;
+}
+
+/* ── 주사위 ── */
+.dice-row{display:flex;gap:8px;justify-content:center;margin-bottom:8px}
+.die{
+  width:36px;height:36px;
+  background:linear-gradient(145deg,#f5e8c8,#e8d5a0);
+  border:2px solid var(--brown);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:900;color:var(--ink);
+  box-shadow:2px 3px 8px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.6);
+  transition:all .3s;
+  position:relative;
+}
+.die.rolling{animation:dieRoll .5s ease-out}
+@keyframes dieRoll{
+  0%{transform:rotate(0deg) scale(1)}
+  25%{transform:rotate(-15deg) scale(1.15)}
+  50%{transform:rotate(12deg) scale(.95)}
+  75%{transform:rotate(-8deg) scale(1.05)}
+  100%{transform:rotate(0deg) scale(1)}
+}
+.die.red-val{color:var(--red)}
+.dice-total{
+  text-align:center;font-family:'Cinzel',serif;font-size:18px;font-weight:700;
+  color:var(--gold2);margin-bottom:5px;min-height:22px;
+  text-shadow:0 0 10px rgba(200,148,10,.5);
+}
+
+/* ── 자원 ── */
+.res-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.res-item{
+  display:flex;align-items:center;gap:5px;font-size:11px;
+  padding:4px 6px;border-radius:6px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.06);
+}
+.ri{
+  width:18px;height:18px;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;flex-shrink:0;
+}
+.res-count{font-weight:700;color:var(--gold2);margin-left:auto;font-size:12px}
+
+/* ── 건설 버튼 ── */
+.abtn{
+  padding:7px 8px;border-radius:7px;background:rgba(255,255,255,.06);
+  color:#ddd;font-size:11px;cursor:pointer;text-align:left;width:100%;
+  margin-bottom:3px;transition:all .18s;
+  border:1px solid rgba(255,255,255,.1);font-family:'Noto Sans KR',sans-serif;
+  display:flex;align-items:center;gap:5px;
+}
+.abtn:hover:not(:disabled){background:rgba(255,255,255,.13);border-color:var(--brown3)}
+.abtn:disabled{opacity:.28;cursor:not-allowed}
+.abtn.active-a{
+  background:linear-gradient(135deg,var(--brown2),var(--brown));
+  border-color:var(--gold);color:var(--gold2);
+  box-shadow:0 0 10px rgba(200,148,10,.3);
+}
+.abtn.gold{
+  background:linear-gradient(135deg,#a07010,#c8940a);
+  border-color:var(--gold2);color:#fff;font-weight:700;
+  box-shadow:0 2px 8px rgba(200,148,10,.35);
+}
+.abtn.gold:hover:not(:disabled){background:linear-gradient(135deg,#c8940a,#e0b020)}
+.cost-hint{font-size:8.5px;color:rgba(255,255,255,.3);margin:-2px 0 3px 2px}
+
+/* ── 발전 카드 ── */
+.dc{
+  padding:6px 8px;border:1px solid rgba(255,255,255,.1);
+  border-radius:7px;margin-bottom:4px;
+  display:flex;justify-content:space-between;align-items:center;font-size:11px;
+  background:rgba(255,255,255,.04);
+}
+.dc.new-c{border-color:var(--gold);background:rgba(200,148,10,.1)}
+.dc button{
+  font-size:10px;padding:3px 7px;border:1px solid var(--brown3);
+  border-radius:4px;background:var(--brown);cursor:pointer;color:var(--gold2);
+  font-family:'Noto Sans KR',sans-serif;transition:all .15s;
+}
+.dc button:hover:not(:disabled){background:var(--brown2)}
+.dc button:disabled{opacity:.3;cursor:not-allowed}
+
+/* ── 점수 ── */
+.srow{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:11px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.07);
+}
+.srow:last-child{border-bottom:none}
+.sval{font-weight:700;color:var(--gold2);font-size:13px}
+
+/* ── 로그 ── */
+.logbox{
+  font-size:10px;color:rgba(255,255,255,.5);max-height:60px;overflow-y:auto;
+  line-height:1.7;scrollbar-width:thin;scrollbar-color:var(--brown3) transparent;
+}
+
+/* ── 모달 ── */
+.modal-ov{
+  position:absolute;inset:0;background:rgba(0,0,0,.7);
+  display:flex;align-items:center;justify-content:center;z-index:200;
+  backdrop-filter:blur(3px);
+}
+.modal{
+  background:linear-gradient(160deg,#2a1a08,#1a0e04);
+  border:1px solid var(--brown3);border-radius:14px;padding:20px;
+  max-width:300px;width:93%;text-align:center;
+  max-height:88vh;overflow-y:auto;
+  box-shadow:0 8px 40px rgba(0,0,0,.7),0 0 60px rgba(200,148,10,.1);
+}
+.modal h2{
+  font-family:'Cinzel',serif;font-size:18px;font-weight:700;
+  margin-bottom:7px;color:var(--gold2);
+  text-shadow:0 0 15px rgba(200,148,10,.5);
+}
+.modal p{font-size:12px;color:rgba(255,255,255,.55);margin-bottom:10px}
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
+.ti{
+  padding:8px 5px;border:1px solid rgba(255,255,255,.12);border-radius:7px;
+  text-align:center;cursor:pointer;font-size:11px;line-height:1.6;color:#ddd;
+  transition:all .18s;background:rgba(255,255,255,.04);
+}
+.ti:hover{border-color:var(--brown3);background:rgba(255,255,255,.09)}
+.ti.sel{border-color:var(--gold2);background:rgba(200,148,10,.18);color:var(--gold2)}
+.ti.dis{opacity:.28;pointer-events:none}
+.pinput{
+  width:44px;padding:3px 5px;border:1px solid var(--brown3);
+  border-radius:4px;font-size:11px;text-align:center;
+  background:rgba(255,255,255,.08);color:#eee;
+  font-family:'Noto Sans KR',sans-serif;
+}
+
+/* ── 주사위 결과 토스트 (화면 중앙) ── */
+#dice-toast{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%) scale(.6);
+  pointer-events:none;z-index:300;
+  opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);
+  text-align:center;
+}
+#dice-toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.toast-bg{
+  background:linear-gradient(160deg,rgba(30,12,4,.97),rgba(15,7,2,.98));
+  border:2px solid var(--gold);border-radius:16px;
+  padding:18px 28px;
+  box-shadow:0 8px 40px rgba(0,0,0,.8),0 0 60px rgba(200,148,10,.25);
+}
+.toast-dice-row{display:flex;gap:12px;justify-content:center;margin-bottom:8px}
+.toast-die{
+  width:52px;height:52px;
+  background:linear-gradient(145deg,#f5e8c8,#e8d5a0);
+  border:2px solid var(--brown);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:30px;font-weight:900;color:var(--ink);
+  box-shadow:3px 4px 12px rgba(0,0,0,.6),inset 0 2px 0 rgba(255,255,255,.7);
+}
+.toast-die.red{color:var(--red)}
+.toast-total{
+  font-family:'Cinzel',serif;font-size:32px;font-weight:900;
+  color:var(--gold2);text-shadow:0 0 20px rgba(200,148,10,.7);
+}
+.toast-who{font-size:11px;color:rgba(255,255,255,.5);margin-top:3px}
+.toast-7{font-size:14px;color:#e74c3c;margin-top:3px;font-weight:700}
+
+/* ── 리소스 획득 팝업 ── */
+#res-popup{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%) scale(.5);
+  pointer-events:none;z-index:250;opacity:0;
+  transition:all .3s cubic-bezier(.34,1.56,.64,1);
+}
+#res-popup.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.res-pop-inner{
+  background:linear-gradient(160deg,rgba(30,12,4,.97),rgba(15,7,2,.98));
+  border:1px solid var(--gold);border-radius:12px;padding:12px 18px;
+  text-align:center;box-shadow:0 6px 30px rgba(0,0,0,.7);
+}
+.res-pop-inner h4{font-size:11px;color:rgba(255,255,255,.4);margin-bottom:6px;letter-spacing:1px}
+.res-pop-items{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.rpi{font-size:14px;color:var(--gold2);font-weight:700}
+
+/* ── 상대 차례 오버레이 메시지 ── */
+#opp-overlay{
+  position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+  pointer-events:none;z-index:150;opacity:0;
+  transition:opacity .5s;
+}
+#opp-overlay.show{opacity:1}
+.opp-msg{
+  background:rgba(0,0,0,.75);backdrop-filter:blur(4px);
+  border:1px solid rgba(255,255,255,.12);border-radius:24px;
+  padding:8px 20px;font-size:12px;color:rgba(255,255,255,.65);
+  white-space:nowrap;letter-spacing:.5px;
+}
+
+/* ── 도로/마을 배치 힌트 오버레이 텍스트 ── */
+#build-hint{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  pointer-events:none;z-index:150;opacity:0;transition:opacity .3s;
+}
+#build-hint.show{opacity:1}
+.build-hint-inner{
+  background:rgba(0,0,0,.75);backdrop-filter:blur(4px);
+  border:1px solid var(--gold);border-radius:20px;
+  padding:6px 16px;font-size:11px;color:var(--gold2);letter-spacing:.5px;
+}
+
+/* ── 7 버리기 모달 ── */
+.discard-grid{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.disc-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0}
 </style>
-</head>
-<body>
-<div id="container">
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="canvas"></canvas>
-
-  <div id="ui">
-    <div class="title-bar">
-      <h1>Air Guitar Motion Studio</h1>
-      <p>왼손 핀치 위치로 코드 선택 · 오른손 다운스트로크로 연주</p>
-    </div>
-
-    <div class="tone-selector">
-      <button class="tone-btn active" onclick="setTone('electric')" id="btn-electric">⚡ 일렉</button>
-      <button class="tone-btn" onclick="setTone('acoustic')" id="btn-acoustic">🎸 어쿠스틱</button>
-      <button class="tone-btn" onclick="setTone('jazz')" id="btn-jazz">🎷 재즈일렉</button>
-    </div>
-
-        <div class="chord-grid" id="chordGrid"></div>
-
-    <div class="strum-viz" id="strumViz"></div>
-
-    <div class="fret-indicator">
-      핀치 1.0 · 스트럼 <span id="strumCount">0</span>
-    </div>
-
-    <div class="bottom-bar">
-      <div class="status-box">
-        <div class="status-label">현재 코드</div>
-        <div class="status-value highlight" id="currentChord">-</div>
-      </div>
-      <div class="status-box">
-        <div class="status-label">오른손</div>
-        <div class="status-value" id="rightHandState">피크 그립</div>
-      </div>
-      <div class="status-box">
-        <div class="status-label">왼손</div>
-        <div class="status-value" id="leftHandState">핀치 인식</div>
-      </div>
-    </div>
+</head><body>
+<div id="app">
+<!-- ════ LOBBY ════ -->
+<div id="lobby" class="screen active">
+  <div class="logo">
+    <h1>CATAN</h1>
+    <p>개척자들의 섬</p>
   </div>
-
-  <div id="start-overlay">
-    <h2>🎸 Air Guitar Studio</h2>
-    <div class="guide-box">
-      <strong>왼손</strong> — 핀치(엄지+검지)로 코드 그리드 위 위치 선택<br>
-      <strong>오른손</strong> — 위→아래 다운스트로크로 연주<br>
-      <strong>카메라</strong> — 양손이 화면에 보이도록 배치
+  <div class="lcard" id="name-step">
+    <h2>플레이어 정보</h2>
+    <div class="field"><label>닉네임</label><input id="pname" placeholder="이름 입력" maxlength="12" value="플레이어1"></div>
+    <div class="field"><label>색상</label>
+      <select id="pcolor">
+        <option value="red">🔴 빨강</option>
+        <option value="blue">🔵 파랑</option>
+        <option value="white">⚪ 하양</option>
+        <option value="orange">🟠 주황</option>
+      </select>
     </div>
-    <p id="loading-text">MediaPipe 로딩 중...</p>
-    <button id="start-btn" onclick="startApp()">카메라 시작</button>
+    <button class="btn primary" onclick="confirmName()">계속 →</button>
+  </div>
+  <div class="lcard" id="join-step" style="display:none">
+    <h2>방 만들기 / 참가</h2>
+    <button class="btn primary" onclick="createRoom()">✦ 새 방 만들기</button>
+    <div class="divider">— 또는 —</div>
+    <div class="field"><label>방 코드</label><input id="rcode" placeholder="XXXX" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;text-align:center;font-family:'Cinzel',serif;font-size:18px"></div>
+    <button class="btn" onclick="joinRoom()">방 참가</button>
+    <div class="divider">— 또는 —</div>
+    <button class="btn" onclick="startSolo()">🎮 혼자 플레이 (로컬 2인)</button>
+  </div>
+  <div class="lcard" id="wait-step" style="display:none">
+    <h2>대기실</h2>
+    <div class="rid" id="rid-show">----</div>
+    <ul class="wlist" id="wplayers"></ul>
+    <button class="btn primary" id="start-btn" style="display:none" onclick="startGame()">⚑ 게임 시작</button>
+    <p style="font-size:11px;color:rgba(255,255,255,.3);text-align:center" id="wait-msg">방장이 시작을 누를 때까지 대기 중</p>
   </div>
 </div>
 
+<!-- ════ GAME ════ -->
+<div id="game" class="screen">
+  <div id="board-area">
+    <canvas id="cv"></canvas>
+    <!-- 주사위 토스트 -->
+    <div id="dice-toast">
+      <div class="toast-bg">
+        <div class="toast-dice-row">
+          <div class="toast-die" id="td1">—</div>
+          <div class="toast-die" id="td2">—</div>
+        </div>
+        <div class="toast-total" id="toast-total">—</div>
+        <div class="toast-who" id="toast-who"></div>
+        <div class="toast-7" id="toast-7" style="display:none">🦹 도둑 출동!</div>
+      </div>
+    </div>
+    <!-- 자원 획득 팝업 -->
+    <div id="res-popup"><div class="res-pop-inner"><h4>자원 획득</h4><div class="res-pop-items" id="res-pop-items"></div></div></div>
+    <!-- 상대 차례 안내 -->
+    <div id="opp-overlay"><div class="opp-msg" id="opp-msg"></div></div>
+    <!-- 건설 힌트 -->
+    <div id="build-hint"><div class="build-hint-inner" id="build-hint-text"></div></div>
+    <!-- 모달 -->
+    <div class="modal-ov" id="moverlay" style="display:none"><div class="modal" id="mcontent"></div></div>
+  </div>
+  <div id="sidebar">
+    <!-- 차례 표시 -->
+    <div class="turn-banner" id="turn-banner">—</div>
+    <div id="turn-color-bar"></div>
+    <div class="phase-lbl" id="phase-lbl">—</div>
+    <!-- 주사위 -->
+    <div class="panel">
+      <h3>주사위</h3>
+      <div class="dice-row">
+        <div class="die" id="d1">—</div>
+        <div class="die" id="d2">—</div>
+      </div>
+      <div class="dice-total" id="dtotal"></div>
+      <button class="abtn" id="roll-btn" onclick="rollDice()"><span>🎲</span> 주사위 굴리기</button>
+    </div>
+    <!-- 내 자원 -->
+    <div class="panel"><h3>내 자원</h3><div class="res-grid" id="my-res"></div></div>
+    <!-- 건설 -->
+    <div class="panel">
+      <h3>건설</h3>
+      <button class="abtn" id="br-btn" onclick="setBM('road')"><span>🛤</span> 도로</button>
+      <div class="cost-hint">나무+흙</div>
+      <button class="abtn" id="bs-btn" onclick="setBM('settlement')"><span>🏘</span> 마을</button>
+      <div class="cost-hint">나무+흙+양+밀</div>
+      <button class="abtn" id="bc-btn" onclick="setBM('city')"><span>🏙</span> 도시</button>
+      <div class="cost-hint">밀×2+광석×3</div>
+      <button class="abtn" id="bd-btn" onclick="buyDev()"><span>🃏</span> 발전카드</button>
+      <div class="cost-hint">양+밀+광석</div>
+    </div>
+    <!-- 발전 카드 -->
+    <div class="panel"><h3>발전 카드</h3><div id="dc-list"><p style="font-size:10px;color:rgba(255,255,255,.25)">없음</p></div></div>
+    <!-- 거래 -->
+    <div class="panel">
+      <h3>거래</h3>
+      <button class="abtn" onclick="openBank()"><span>🏦</span> 은행 거래</button>
+      <button class="abtn" id="ptrade-btn" onclick="openPlayerTrade()"><span>🤝</span> 플레이어 거래</button>
+    </div>
+    <!-- 점수 -->
+    <div class="panel"><h3>점수판</h3><div id="scoreboard"></div><div style="margin-top:5px;font-size:9px;color:rgba(255,255,255,.3)" id="specials"></div></div>
+    <!-- 로그 -->
+    <div class="panel"><h3>게임 로그</h3><div class="logbox" id="glog"></div></div>
+    <!-- 차례 종료 -->
+    <button class="abtn gold" id="end-btn" onclick="endTurn()" style="opacity:.35;margin:0">차례 종료 →</button>
+  </div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-database-compat.min.js"></script>
 <script>
-const CHORDS = [
-  ['C','D','E','F','G','A','E7','B7'],
-  ['C7','Dm','Em','Fm','G7','A7','Am','F']
+firebase.initializeApp({
+  apiKey:"AIzaSyAgh9XXnRQ1RoE0zIlcRDHaQsEUEyPiUKM",
+  authDomain:"qwriopo.firebaseapp.com",
+  databaseURL:"https://qwriopo-default-rtdb.firebaseio.com",
+  projectId:"qwriopo",
+  storageBucket:"qwriopo.firebasestorage.app",
+  messagingSenderId:"575723367123",
+  appId:"1:575723367123:web:3ae304ab101aa1d1e54226"
+});
+const db = firebase.database();
+
+/* ════ 상수 ════ */
+const PC  = {red:'#c0392b',blue:'#2471a3',white:'#9daebf',orange:'#d35400'};
+const RC  = {wood:'#2d6e1e',brick:'#a03515',sheep:'#4ea832',wheat:'#c9a820',ore:'#5a5a72',desert:'#b8a86a'};
+const RK  = {wood:'나무',brick:'흙',sheep:'양',wheat:'밀',ore:'광석'};
+const RE  = {wood:'🌲',brick:'🧱',sheep:'🐑',wheat:'🌾',ore:'⛏'};
+const PROB= {2:1,3:2,4:3,5:4,6:5,8:5,9:4,10:3,11:2,12:1};
+const DEV_DECK = [
+  ...'knight'.repeat ? Array(14).fill('knight') : [],
+  'road_building','road_building',
+  'year_of_plenty','year_of_plenty',
+  'monopoly','monopoly',
+  'victory','victory','victory','victory','victory'
+];
+// 위 스프레드 버그 방지 재선언
+const DEV_DECK_SRC = [
+  'knight','knight','knight','knight','knight','knight','knight',
+  'knight','knight','knight','knight','knight','knight','knight',
+  'road_building','road_building',
+  'year_of_plenty','year_of_plenty',
+  'monopoly','monopoly',
+  'victory','victory','victory','victory','victory'
+];
+const DEV_NAME = {knight:'⚔️ 기사',road_building:'🛤 도로건설',year_of_plenty:'🌾 풍요의 해',monopoly:'🎯 독점',victory:'⭐ 승점'};
+
+// 최대 건설 수
+const MAX_ROADS = 15, MAX_SETTLEMENTS = 5, MAX_CITIES = 4;
+
+const AXIAL_TILES = [
+  {q:-2,r:0},{q:-2,r:1},{q:-2,r:2},
+  {q:-1,r:-1},{q:-1,r:0},{q:-1,r:1},{q:-1,r:2},
+  {q:0,r:-2},{q:0,r:-1},{q:0,r:0},{q:0,r:1},{q:0,r:2},
+  {q:1,r:-2},{q:1,r:-1},{q:1,r:0},{q:1,r:1},
+  {q:2,r:-2},{q:2,r:-1},{q:2,r:0}
+];
+const DESERT_INDEX = 9;
+
+let HS = 46;
+const SQ3 = Math.sqrt(3);
+
+/* ════ 좌표 ════ */
+function axial2px0(q,r){return{x:HS*1.5*q,y:HS*(SQ3*.5*q+SQ3*r)};}
+function flatHexCorners(px,py){const p=[];for(let i=0;i<6;i++){const a=Math.PI/3*i;p.push({x:px+HS*Math.cos(a),y:py+HS*Math.sin(a)});}return p;}
+
+const SNAP=0.001;
+function snapN(v){return Math.round(v/SNAP)*SNAP;}
+function axial2norm(q,r){return{x:1.5*q,y:SQ3*.5*q+SQ3*r};}
+function normHexCorners(nx,ny){const p=[];for(let i=0;i<6;i++){const a=Math.PI/3*i;p.push({x:nx+Math.cos(a),y:ny+Math.sin(a)});}return p;}
+function normVkey(q,r,ci){const n=axial2norm(q,r);const c=normHexCorners(n.x,n.y)[ci];return`${snapN(c.x)}_${snapN(c.y)}`;}
+
+let _cx=0,_cy=0;
+
+function buildGraph(tiles){
+  const vertMap={},edgeMap={};
+  tiles.forEach((t,ti)=>{
+    const{x,y}=axial2px0(t.q,t.r);
+    const corners=flatHexCorners(x,y);
+    corners.forEach((c,ci)=>{
+      const nk=normVkey(t.q,t.r,ci);
+      if(!vertMap[nk])vertMap[nk]={x:snapN(c.x),y:snapN(c.y),building:null,owner:null,port:null,_k:nk,_src:{ti,ci}};
+    });
+    for(let i=0;i<6;i++){
+      const a=corners[i],b=corners[(i+1)%6];
+      const ka=normVkey(t.q,t.r,i),kb=normVkey(t.q,t.r,(i+1)%6);
+      const ek=[ka,kb].sort().join('|||');
+      if(!edgeMap[ek])edgeMap[ek]={x1:snapN(a.x),y1:snapN(a.y),x2:snapN(b.x),y2:snapN(b.y),road:null,vk1:ka,vk2:kb,_src:{ti,ci1:i,ci2:(i+1)%6}};
+    }
+  });
+  const vertices=Object.values(vertMap);
+  const edges=Object.values(edgeMap);
+  const vIdx={};
+  vertices.forEach((v,i)=>{vIdx[v._k]=i;});
+  const vertAdj=vertices.map(()=>[]);
+  edges.forEach((e,ei)=>{
+    const i1=vIdx[e.vk1],i2=vIdx[e.vk2];
+    if(i1!==undefined&&i2!==undefined){vertAdj[i1].push({vi:i2,ei});vertAdj[i2].push({vi:i1,ei});}
+  });
+  const vertTileAdj=vertices.map(()=>[]);
+  tiles.forEach((t,ti)=>{
+    for(let ci=0;ci<6;ci++){const nk=normVkey(t.q,t.r,ci);const vi=vIdx[nk];if(vi!==undefined&&!vertTileAdj[vi].includes(ti))vertTileAdj[vi].push(ti);}
+  });
+  return{vertices,edges,vIdx,vertAdj,vertTileAdj};
+}
+
+// 공식 카탄 항구 9개 위치 (사진 기준, 시계방향)
+const FIXED_PORT_SLOTS=[
+  {ti: 7,ei:5,ci:[5,0]},  // 상단 (12시)
+  {ti:12,ei:5,ci:[5,0]},  // 우상단 (2시)
+  {ti:16,ei:0,ci:[0,1]},  // 우측 상 (3시)
+  {ti:17,ei:0,ci:[0,1]},  // 우측 하 (4시)
+  {ti:18,ei:1,ci:[1,2]},  // 우하단 (5시)
+  {ti:15,ei:1,ci:[1,2]},  // 하단 우 (6시)
+  {ti:11,ei:2,ci:[2,3]},  // 하단 좌 (7시)
+  {ti: 2,ei:3,ci:[3,4]},  // 좌측 (9시)
+  {ti: 0,ei:4,ci:[4,5]},  // 좌상단 (11시)
 ];
 
-const CHORD_FREQS = {
-  'C':   [130.8, 164.8, 196.0, 261.6, 329.6],
-  'D':   [146.8, 185.0, 220.0, 293.7, 370.0],
-  'E':   [82.4,  123.5, 164.8, 207.7, 247.0],
-  'F':   [87.3,  130.8, 174.6, 220.0, 261.6],
-  'G':   [98.0,  123.5, 146.8, 196.0, 246.9],
-  'A':   [110.0, 138.6, 164.8, 220.0, 277.2],
-  'E7':  [82.4,  123.5, 155.6, 196.0, 247.0],
-  'B7':  [123.5, 155.6, 185.0, 246.9, 311.1],
-  'C7':  [130.8, 164.8, 196.0, 233.1, 261.6],
-  'Dm':  [146.8, 174.6, 220.0, 293.7, 349.2],
-  'Em':  [82.4,  123.5, 164.8, 196.0, 246.9],
-  'Fm':  [87.3,  130.8, 174.6, 220.0, 261.6],
-  'G7':  [98.0,  123.5, 146.8, 196.0, 233.1],
-  'A7':  [110.0, 138.6, 164.8, 220.0, 261.6],
-  'Am':  [110.0, 130.8, 164.8, 220.0, 261.6],
-  'F':   [87.3,  130.8, 174.6, 220.0, 261.6]
-};
+function generatePorts(){
+  // 슬롯 위치는 고정, 항구 종류만 랜덤 배치
+  const portTypes=[
+    {ratio:2,res:'wood'},{ratio:2,res:'brick'},{ratio:2,res:'sheep'},
+    {ratio:2,res:'wheat'},{ratio:2,res:'ore'},
+    {ratio:3,res:null},{ratio:3,res:null},{ratio:3,res:null},{ratio:3,res:null}
+  ];
+  shuffleArr(portTypes);
+  PORT_DEFS=FIXED_PORT_SLOTS.map((slot,i)=>({...slot,...portTypes[i]}));
+  return PORT_DEFS;
+}
 
-let audioCtx = null;
-let hands = null;
-let camera = null;
-let currentChord = null;
-let strumCount = 0;
-let lastRightY = null;
-let strumCooldown = false;
-let playingCell = null;
-let vibratingStrings = [];
-let strumTimeout = null;
-
-const cells = [];
-
-function buildGrid() {
-  const grid = document.getElementById('chordGrid');
-  CHORDS.forEach((row, ri) => {
-    row.forEach((ch, ci) => {
-      const cell = document.createElement('div');
-      cell.className = 'chord-cell';
-      cell.textContent = ch;
-      cell.id = `cell-${ri}-${ci}`;
-      grid.appendChild(cell);
-      cells.push({el: cell, chord: ch, row: ri, col: ci});
+function applyPorts(vertices,vIdx,tiles,portDefs){
+  (portDefs||PORT_DEFS).forEach(pd=>{
+    pd.ci.forEach(ci=>{
+      const nk=normVkey(tiles[pd.ti].q,tiles[pd.ti].r,ci);
+      const vi=vIdx[nk];
+      if(vi!==undefined)vertices[vi].port={ratio:pd.ratio,res:pd.res};
     });
   });
 }
 
-function buildStrings() {
-  const viz = document.getElementById('strumViz');
-  for (let i = 0; i < 6; i++) {
-    const s = document.createElement('div');
-    s.className = 'string-line';
-    const w = 40 + i * 8;
-    s.style.width = w + 'px';
-    viz.appendChild(s);
-    vibratingStrings.push(s);
-  }
-}
+function shuffleArr(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
-function initAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}
-
-let currentTone = 'electric';
-
-function setTone(tone) {
-  currentTone = tone;
-  document.querySelectorAll('.tone-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('btn-' + tone).classList.add('active');
-}
-
-function makeDistortionCurve(amount) {
-  const samples = 256;
-  const curve = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    const x = (i * 2) / samples - 1;
-    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
-  }
-  return curve;
-}
-
-function playChordSound(chordName) {
-  if (!audioCtx || !CHORD_FREQS[chordName]) return;
-  const freqs = CHORD_FREQS[chordName];
-
-  if (currentTone === 'electric') {
-    // 디스토션 일렉 기타
-    freqs.forEach((freq, i) => {
-      setTimeout(() => {
-        const t = audioCtx.currentTime;
-        const osc1 = audioCtx.createOscillator();
-        const osc2 = audioCtx.createOscillator();
-        osc1.type = 'sawtooth';
-        osc2.type = 'sawtooth';
-        osc1.frequency.setValueAtTime(freq, t);
-        osc2.frequency.setValueAtTime(freq * 1.006, t);
-
-        const dist = audioCtx.createWaveShaper();
-        dist.curve = makeDistortionCurve(300);
-        dist.oversample = '4x';
-
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.value = 2200;
-        filter.Q.value = 0.8;
-
-        const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.22, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-
-        const merger = audioCtx.createChannelMerger(2);
-        osc1.connect(dist);
-        osc2.connect(dist);
-        dist.connect(filter);
-        filter.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc1.start(t); osc1.stop(t + 1.3);
-        osc2.start(t); osc2.stop(t + 1.3);
-      }, i * 25);
-    });
-
-  } else if (currentTone === 'acoustic') {
-    // 어쿠스틱 기타 - 따뜻한 플럭 느낌
-    freqs.forEach((freq, i) => {
-      setTimeout(() => {
-        const t = audioCtx.currentTime;
-        // 기본음
-        const osc = audioCtx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, t);
-
-        // 배음 (2배음, 3배음)
-        const osc2 = audioCtx.createOscillator();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(freq * 2, t);
-
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(3000, t);
-        filter.frequency.exponentialRampToValueAtTime(800, t + 0.6);
-
-        const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.28, t);
-        gain.gain.setValueAtTime(0.18, t + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
-
-        const gain2 = audioCtx.createGain();
-        gain2.gain.setValueAtTime(0.08, t);
-        gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
-
-        osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
-        osc2.connect(gain2); gain2.connect(audioCtx.destination);
-        osc.start(t); osc.stop(t + 2.0);
-        osc2.start(t); osc2.stop(t + 1.0);
-      }, i * 32);
-    });
-
-  } else if (currentTone === 'jazz') {
-    // 재즈일렉 - 따뜻하고 컴프레스된 할로우바디 느낌
-    freqs.forEach((freq, i) => {
-      setTimeout(() => {
-        const t = audioCtx.currentTime;
-        const osc = audioCtx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, t);
-
-        const osc2 = audioCtx.createOscillator();
-        osc2.type = 'triangle';
-        osc2.frequency.setValueAtTime(freq, t);
-
-        // 따뜻한 로우패스
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 1800;
-        filter.Q.value = 0.5;
-
-        // 살짝 오버드라이브
-        const dist = audioCtx.createWaveShaper();
-        dist.curve = makeDistortionCurve(60);
-
-        const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.3, t);
-        gain.gain.setValueAtTime(0.22, t + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
-
-        const gain2 = audioCtx.createGain();
-        gain2.gain.setValueAtTime(0.12, t);
-        gain2.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-
-        osc.connect(dist); dist.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
-        osc2.connect(gain2); gain2.connect(audioCtx.destination);
-        osc.start(t); osc.stop(t + 1.8);
-        osc2.start(t); osc2.stop(t + 1.4);
-      }, i * 30);
-    });
-  }
-}
-
-function vibrateStrings() {
-  vibratingStrings.forEach(s => s.classList.add('vibrating'));
-  setTimeout(() => vibratingStrings.forEach(s => s.classList.remove('vibrating')), 350);
-}
-
-function flashCell(chordName) {
-  cells.forEach(c => {
-    c.el.classList.remove('playing');
-    if (c.chord === chordName) c.el.classList.add('playing');
-  });
-  if (strumTimeout) clearTimeout(strumTimeout);
-  strumTimeout = setTimeout(() => {
-    cells.forEach(c => {
-      if (c.chord === chordName) {
-        c.el.classList.remove('playing');
-        if (currentChord === chordName) c.el.classList.add('active');
-      }
-    });
-  }, 400);
-}
-
-function setActiveChord(chordName) {
-  currentChord = chordName;
-  document.getElementById('currentChord').textContent = chordName || '-';
-  cells.forEach(c => {
-    c.el.classList.remove('active', 'playing');
-    if (c.chord === chordName) c.el.classList.add('active');
+function generateTiles(){
+  const resources=shuffleArr([...Array(4).fill('wood'),...Array(3).fill('brick'),...Array(4).fill('sheep'),...Array(4).fill('wheat'),...Array(3).fill('ore')]);
+  const numbers=shuffleArr([2,3,3,4,4,5,5,6,6,8,8,9,9,10,10,11,11,12]);
+  let ni=0;
+  return AXIAL_TILES.map((ax,i)=>{
+    if(i===DESERT_INDEX)return{q:ax.q,r:ax.r,resource:'desert',number:null,hasRobber:true};
+    const res=resources[i<DESERT_INDEX?i:i-1];
+    return{q:ax.q,r:ax.r,resource:res,number:numbers[ni++],hasRobber:false};
   });
 }
 
-function detectPinch(landmarks) {
-  const thumb = landmarks[4];
-  const index = landmarks[8];
-  const dx = thumb.x - index.x;
-  const dy = thumb.y - index.y;
-  const dist = Math.sqrt(dx*dx + dy*dy);
-  const midX = (thumb.x + index.x) / 2;
-  const midY = (thumb.y + index.y) / 2;
-  return { pinching: dist < 0.07, midX, midY };
-}
+/* ════ 상태 ════ */
+let myName='',myColor='red',roomId=null,isHost=false;
+let G=null,bm=null;
+let _adj={vertAdj:[],vertTileAdj:[],vIdx:{}};
+let _fbSR=null;
+// 마지막으로 처리한 setupTurn (중복 자원 지급 방지)
+let _lastSetupTurnProcessed=-1;
 
-function getChordFromPosition(nx, ny) {
-  const gridEl = document.getElementById('chordGrid');
-  const rect = gridEl.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const px = nx * vw;
-  const py = ny * vh;
-  if (px < rect.left || px > rect.right || py < rect.top || py > rect.bottom) return null;
-  const relX = (px - rect.left) / rect.width;
-  const relY = (py - rect.top) / rect.height;
-  const col = Math.floor(relX * 8);
-  const row = Math.floor(relY * 2);
-  if (row >= 0 && row < 2 && col >= 0 && col < 8) return CHORDS[row][col];
-  return null;
-}
-
-function detectStrum(landmarks, handLabel) {
-  const wrist = landmarks[0];
-  return { y: wrist.y };
-}
-
-function onResults(results) {
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (!results.multiHandLandmarks) return;
-
-  let leftLandmarks = null;
-  let rightLandmarks = null;
-
-  results.multiHandLandmarks.forEach((landmarks, i) => {
-    const label = results.multiHandedness[i].label;
-    // 비디오가 scaleX(-1) 미러링이므로 x 좌표 반전
-    const ml = landmarks.map(lm => ({...lm, x: 1 - lm.x}));
-    if (label === 'Right') leftLandmarks = ml;
-    else rightLandmarks = ml;
-
-    drawConnectors(ctx, ml, HAND_CONNECTIONS, {color: 'rgba(0,255,180,0.4)', lineWidth: 1.5});
-    drawLandmarks(ctx, ml, {color: 'rgba(0,255,180,0.8)', lineWidth: 1, radius: 3});
+function rebuildAdj(){
+  if(!G)return;
+  const vi={};G.vertices.forEach((v,i)=>{vi[v._k]=i;});
+  const va=G.vertices.map(()=>[]);
+  G.edges.forEach((e,ei)=>{const i1=vi[e.vk1],i2=vi[e.vk2];if(i1!==undefined&&i2!==undefined){va[i1].push({vi:i2,ei});va[i2].push({vi:i1,ei});}});
+  const vta=G.vertices.map(()=>[]);
+  G.vertices.forEach((v,vi_idx)=>{
+    if(!v._src)return;
+    G.tiles.forEach((t,ti)=>{for(let ci=0;ci<6;ci++){if(normVkey(t.q,t.r,ci)===v._k&&!vta[vi_idx].includes(ti))vta[vi_idx].push(ti);}});
   });
+  _adj={vIdx:vi,vertAdj:va,vertTileAdj:vta};
+}
 
-  if (leftLandmarks) {
-    const { pinching, midX, midY } = detectPinch(leftLandmarks);
-    document.getElementById('leftHandState').textContent = pinching ? '핀치 감지!' : '핀치 인식';
-    if (pinching) {
-      const chord = getChordFromPosition(midX, midY);
-      if (chord) setActiveChord(chord);
-    }
-    const ix = leftLandmarks[8].x * canvas.width;
-    const iy = leftLandmarks[8].y * canvas.height;
+function rebuildVertexCoords(){
+  if(!G)return;
+  const tc=G.tiles.map(t=>{const{x,y}=axial2px0(t.q,t.r);return flatHexCorners(x,y);});
+  G.vertices.forEach(v=>{if(v._src){const c=tc[v._src.ti][v._src.ci];v.x=snapN(c.x);v.y=snapN(c.y);}});
+  G.edges.forEach(e=>{if(e._src){const c1=tc[e._src.ti][e._src.ci1],c2=tc[e._src.ti][e._src.ci2];e.x1=snapN(c1.x);e.y1=snapN(c1.y);e.x2=snapN(c2.x);e.y2=snapN(c2.y);}});
+  rebuildAdj();
+}
+
+/* ════ 캔버스 ════ */
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+
+function resizeCanvas(){
+  const area=document.getElementById('board-area');
+  const aw=area.clientWidth,ah=area.clientHeight;
+  // 항구 부표(HS*1.9) + 여백까지 포함한 보드 전체 크기로 scale 계산
+  const bw=HS*1.5*4+HS*3.8+16,bh=HS*SQ3*4+HS*3.8+16;
+  const scale=Math.min(aw/bw,ah/bh,1.4);
+  HS=Math.floor(46*scale);
+  const pad=Math.ceil(HS*1.95);
+  const cw=Math.floor(HS*1.5*4+pad*2);
+  const ch=Math.floor(HS*SQ3*4+pad*2);
+  cv.width=cw;cv.height=ch;
+  cv.style.width=cw+'px';cv.style.height=ch+'px';
+  _cx=cw/2;_cy=ch/2;
+  if(G)rebuildVertexCoords();
+}
+
+function tileCenter(t){const p=axial2px0(t.q,t.r);return{x:p.x+_cx,y:p.y+_cy};}
+
+/* ════ 보드 그리기 ════ */
+function drawBoard(){
+  if(!G)return;
+  ctx.clearRect(0,0,cv.width,cv.height);
+
+  // 바다 배경
+  const seaGrad=ctx.createRadialGradient(_cx,_cy,0,_cx,_cy,cv.width*.75);
+  seaGrad.addColorStop(0,'#1e6fa8');seaGrad.addColorStop(1,'#0d3a5c');
+  ctx.fillStyle=seaGrad;
+  ctx.beginPath();ctx.roundRect(2,2,cv.width-4,cv.height-4,14);ctx.fill();
+
+  // 파도 패턴 (미세)
+  ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=1;
+  for(let y=10;y<cv.height;y+=22){
     ctx.beginPath();
-    ctx.arc(ix, iy, 10, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,255,180,0.5)';
-    ctx.fill();
-    ctx.strokeStyle = '#00ffb4';
-    ctx.lineWidth = 2;
+    for(let x=0;x<cv.width;x+=8){ctx.lineTo(x,y+Math.sin(x*.15)*3);}
     ctx.stroke();
   }
 
-  if (rightLandmarks) {
-    const { y } = detectStrum(rightLandmarks, 'Right');
-    document.getElementById('rightHandState').textContent = '피크 그립';
-    if (lastRightY !== null) {
-      const dy = y - lastRightY;
-      if (dy > 0.04 && !strumCooldown && currentChord) {
-        strumCooldown = true;
-        strumCount++;
-        document.getElementById('strumCount').textContent = strumCount;
-        playChordSound(currentChord);
-        vibrateStrings();
-        flashCell(currentChord);
-        setTimeout(() => { strumCooldown = false; }, 300);
+  // 타일
+  G.tiles.forEach((t,ti)=>{
+    const{x,y}=tileCenter(t);
+    const corners=flatHexCorners(x,y);
+
+    // 그림자
+    ctx.beginPath();corners.forEach((c,i)=>i?ctx.lineTo(c.x+2,c.y+3):ctx.moveTo(c.x+2,c.y+3));ctx.closePath();
+    ctx.fillStyle='rgba(0,0,0,.25)';ctx.fill();
+
+    // 타일 본체
+    ctx.beginPath();corners.forEach((c,i)=>i?ctx.lineTo(c.x,c.y):ctx.moveTo(c.x,c.y));ctx.closePath();
+    const tg=ctx.createRadialGradient(x-HS*.2,y-HS*.2,HS*.1,x,y,HS*.85);
+    const bc=RC[t.resource];
+    tg.addColorStop(0,lightenHex(bc,30));tg.addColorStop(1,bc);
+    ctx.fillStyle=tg;ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.3)';ctx.lineWidth=1.5;ctx.stroke();
+    // 하이라이트 테두리
+    ctx.beginPath();corners.forEach((c,i)=>i?ctx.lineTo(c.x,c.y):ctx.moveTo(c.x,c.y));ctx.closePath();
+    ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=1;ctx.stroke();
+
+    // 숫자 토큰
+    if(t.number){
+      const red=t.number===6||t.number===8;
+      const r=HS*.32;
+      // 토큰 그림자
+      ctx.beginPath();ctx.arc(x+1,y+2,r,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,.3)';ctx.fill();
+      // 토큰 본체
+      const tkg=ctx.createRadialGradient(x-r*.3,y-r*.3,r*.1,x,y,r);
+      tkg.addColorStop(0,'#f8eed0');tkg.addColorStop(1,'#e8d5a0');
+      ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=tkg;ctx.fill();
+      ctx.strokeStyle=red?'#c0392b':'rgba(139,80,42,.5)';ctx.lineWidth=1.5;ctx.stroke();
+      ctx.fillStyle=red?'#c0392b':'#2a1a08';
+      ctx.font=`bold ${Math.round(HS*.27)}px 'Cinzel',serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(t.number,x,y);
+      // 확률 점
+      const dots=PROB[t.number]||1;
+      for(let d=0;d<dots;d++){
+        ctx.beginPath();ctx.arc(x-(dots-1)*2.5+d*5,y+r*.75,1.5,0,Math.PI*2);
+        ctx.fillStyle=red?'#c0392b':'rgba(100,70,30,.7)';ctx.fill();
       }
     }
-    lastRightY = y;
-  } else {
-    lastRightY = null;
+    if(t.hasRobber){
+      ctx.font=`${Math.round(HS*.45)}px sans-serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('🦹',x,y+(t.number?-HS*.42:0));
+    }
+    if(t.resource!=='desert'){
+      ctx.font=`${Math.round(HS*.28)}px sans-serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(RE[t.resource],x,y-(t.number?HS*.46:0));
+    }
+  });
+
+  // 항구 — 나무 부두(pier): 엣지 중앙에서 바다 쪽으로 판자길 뻗어나감
+  (G.portDefs||PORT_DEFS).forEach(pd=>{
+    const t=G.tiles[pd.ti];
+    const tc2=tileCenter(t);
+    const corners=flatHexCorners(tc2.x,tc2.y);
+    const c1=corners[pd.ci[0]],c2=corners[pd.ci[1]];
+    const col=pd.res?RC[pd.res]:'#4a90d9';
+
+    // 엣지 중점 & 바깥(바다) 방향 단위벡터
+    const emx=(c1.x+c2.x)/2, emy=(c1.y+c2.y)/2;
+    const edx=emx-tc2.x, edy=emy-tc2.y, edl=Math.hypot(edx,edy)||1;
+    const nx=edx/edl, ny=edy/edl;
+    // 엣지 접선 방향 (부두 폭 방향)
+    const etx=(c2.x-c1.x)/( Math.hypot(c2.x-c1.x,c2.y-c1.y)||1);
+    const ety=(c2.y-c1.y)/( Math.hypot(c2.x-c1.x,c2.y-c1.y)||1);
+
+    const PLEN=HS*1.0;   // 부두 길이
+    const PHW=HS*0.18;   // 부두 반폭
+    const POSTS=4;       // 말뚝 쌍 개수
+
+    // 부두 4개 꼭짓점
+    const A={x:emx-etx*PHW, y:emy-ety*PHW};
+    const B={x:emx+etx*PHW, y:emy+ety*PHW};
+    const C={x:emx+nx*PLEN+etx*PHW, y:emy+ny*PLEN+ety*PHW};
+    const D={x:emx+nx*PLEN-etx*PHW, y:emy+ny*PLEN-ety*PHW};
+
+    // ── 부두 바닥면 (어두운 나무) ──
+    ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);ctx.lineTo(C.x,C.y);ctx.lineTo(D.x,D.y);ctx.closePath();
+    ctx.fillStyle='#2e1a08';ctx.fill();
+
+    // ── 가로 판자 (길이 방향으로 교차) ──
+    const PLANKS=7;
+    for(let i=0;i<=PLANKS;i++){
+      const f=i/PLANKS;
+      const lx=emx+nx*PLEN*f, ly=emy+ny*PLEN*f;
+      ctx.beginPath();
+      ctx.moveTo(lx-etx*(PHW+1), ly-ety*(PHW+1));
+      ctx.lineTo(lx+etx*(PHW+1), ly+ety*(PHW+1));
+      ctx.strokeStyle=i%2===0?'#7a4d22':'#6a3f18';
+      ctx.lineWidth=PLEN/PLANKS*0.82;ctx.lineCap='butt';ctx.stroke();
+      // 판자 사이 틈
+      ctx.strokeStyle='rgba(0,0,0,.4)';ctx.lineWidth=0.8;ctx.stroke();
+    }
+
+    // ── 세로 난간 두 줄 ──
+    [[1,-1],[1,1]].forEach(([_,s])=>{
+      ctx.beginPath();
+      ctx.moveTo(emx+etx*PHW*s, emy+ety*PHW*s);
+      ctx.lineTo(emx+nx*PLEN+etx*PHW*s, emy+ny*PLEN+ety*PHW*s);
+      ctx.strokeStyle='#9a6530';ctx.lineWidth=2.2;ctx.lineCap='square';ctx.stroke();
+      ctx.strokeStyle='rgba(255,200,100,.15)';ctx.lineWidth=0.8;ctx.stroke();
+    });
+
+    // ── 끝 마감재 ──
+    ctx.beginPath();
+    ctx.moveTo(D.x-etx*1,D.y-ety*1);ctx.lineTo(C.x+etx*1,C.y+ety*1);
+    ctx.strokeStyle='#b07840';ctx.lineWidth=3;ctx.lineCap='round';ctx.stroke();
+
+    // ── 말뚝 쌍 (부두 아래로 박힌 기둥들) ──
+    for(let i=0;i<POSTS;i++){
+      const f=(i+0.5)/POSTS;
+      const bx=emx+nx*PLEN*f, by=emy+ny*PLEN*f;
+      [-1,1].forEach(s=>{
+        const px=bx+etx*(PHW+HS*0.1)*s, py=by+ety*(PHW+HS*0.1)*s;
+        const pr=HS*0.07;
+        ctx.beginPath();ctx.arc(px+1,py+2,pr,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,.4)';ctx.fill();
+        const pg=ctx.createRadialGradient(px-pr*.3,py-pr*.3,pr*.1,px,py,pr);
+        pg.addColorStop(0,'#8a5828');pg.addColorStop(1,'#3d1e08');
+        ctx.beginPath();ctx.arc(px,py,pr,0,Math.PI*2);ctx.fillStyle=pg;ctx.fill();
+        ctx.strokeStyle='rgba(255,180,80,.2)';ctx.lineWidth=0.8;ctx.stroke();
+      });
+    }
+
+    // ── 표지판: 부두 끝에서 기둥 위에 ──
+    const sx=emx+nx*PLEN*0.78, sy=emy+ny*PLEN*0.78;
+    const label=pd.res?`${RE[pd.res]} 2:1`:'3:1';
+    const fs=Math.round(HS*0.145);
+    ctx.font=`bold ${fs}px sans-serif`;
+    const tw=ctx.measureText(label).width;
+    const sw=tw+HS*0.2, sh=HS*0.26, sr=3;
+    // 기둥
+    ctx.beginPath();ctx.moveTo(sx,sy+sh*0.5);ctx.lineTo(sx,sy+sh*0.5+HS*0.16);
+    ctx.strokeStyle='#5a3510';ctx.lineWidth=2;ctx.lineCap='round';ctx.stroke();
+    // 판 그림자
+    ctx.beginPath();ctx.roundRect(sx-sw/2+2,sy-sh/2+3,sw,sh,sr);
+    ctx.fillStyle='rgba(0,0,0,.5)';ctx.fill();
+    // 판 본체
+    ctx.beginPath();ctx.roundRect(sx-sw/2,sy-sh/2,sw,sh,sr);
+    ctx.fillStyle=col;ctx.fill();
+    ctx.save();ctx.beginPath();ctx.roundRect(sx-sw/2,sy-sh/2,sw,sh,sr);ctx.clip();
+    ctx.fillStyle='rgba(255,255,255,.18)';ctx.fillRect(sx-sw/2,sy-sh/2,sw,sh*0.45);
+    ctx.restore();
+    ctx.beginPath();ctx.roundRect(sx-sw/2,sy-sh/2,sw,sh,sr);
+    ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1;ctx.stroke();
+    // 텍스트
+    ctx.font=`bold ${fs}px sans-serif`;
+    ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,.7)';ctx.shadowBlur=3;
+    ctx.fillText(label,sx,sy);ctx.shadowBlur=0;
+  });
+
+  const myTurn=isMyTurn();
+
+  // 힌트 점 — 마을 배치 가능 위치
+  if(myTurn&&(bm==='settlement'||bm==='setup')){
+    G.vertices.forEach((v,i)=>{
+      if(!v.building&&canSettle(i)){
+        const vx=v.x+_cx,vy=v.y+_cy;
+        ctx.beginPath();ctx.arc(vx,vy,HS*.22,0,Math.PI*2);
+        ctx.fillStyle='rgba(240,192,48,.85)';ctx.fill();
+        ctx.strokeStyle='rgba(255,220,60,.5)';ctx.lineWidth=2;ctx.stroke();
+        // 내부 아이콘
+        ctx.font=`${Math.round(HS*.18)}px sans-serif`;
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText('🏘',vx,vy);
+      }
+    });
+  }
+  if(myTurn&&(bm==='road'||bm==='setup-road')){
+    G.edges.forEach((e,i)=>{
+      if(!e.road&&canRoad(i)){
+        const mx=(e.x1+e.x2)/2+_cx,my=(e.y1+e.y2)/2+_cy;
+        ctx.beginPath();ctx.arc(mx,my,HS*.16,0,Math.PI*2);
+        ctx.fillStyle='rgba(240,192,48,.85)';ctx.fill();
+        ctx.strokeStyle='rgba(255,220,60,.5)';ctx.lineWidth=2;ctx.stroke();
+      }
+    });
+  }
+  if(myTurn&&bm==='city'){
+    G.vertices.forEach(v=>{
+      if(v.building==='settlement'&&v.owner===myColor){
+        const vx=v.x+_cx,vy=v.y+_cy;
+        ctx.beginPath();ctx.arc(vx,vy,HS*.4,0,Math.PI*2);
+        ctx.strokeStyle='rgba(240,192,48,.9)';ctx.lineWidth=3;ctx.stroke();
+        ctx.beginPath();ctx.arc(vx,vy,HS*.4,0,Math.PI*2);
+        ctx.fillStyle='rgba(240,192,48,.1)';ctx.fill();
+      }
+    });
+  }
+  if(bm==='robber'){
+    G.tiles.forEach((t,ti)=>{
+      if(!t.hasRobber){
+        const{x,y}=tileCenter(t);
+        ctx.beginPath();ctx.arc(x,y,HS*.55,0,Math.PI*2);
+        ctx.strokeStyle='rgba(231,76,60,.85)';ctx.lineWidth=3;
+        ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
+      }
+    });
+  }
+
+  // 도로
+  G.edges.forEach(e=>{
+    if(!e.road)return;
+    const x1=e.x1+_cx,y1=e.y1+_cy,x2=e.x2+_cx,y2=e.y2+_cy;
+    ctx.globalCompositeOperation='destination-over';
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+    ctx.strokeStyle='rgba(0,0,0,.4)';ctx.lineWidth=9;ctx.lineCap='round';ctx.stroke();
+    ctx.globalCompositeOperation='source-over';
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+    ctx.strokeStyle=PC[e.road];ctx.lineWidth=6.5;ctx.lineCap='round';ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+    ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=2;ctx.lineCap='round';ctx.stroke();
+  });
+
+  // 건물
+  G.vertices.forEach(v=>{
+    if(!v.building)return;
+    const vx=v.x+_cx,vy=v.y+_cy,col=PC[v.owner]||'#ccc';
+    const s=HS*.26;
+    if(v.building==='settlement'){
+      // 그림자
+      ctx.beginPath();
+      ctx.moveTo(vx+1,vy-s*1.1+3);ctx.lineTo(vx+s+1,vy+s*.5+3);
+      ctx.lineTo(vx+s+1,vy+s*1.0+3);ctx.lineTo(vx-s+1,vy+s*1.0+3);ctx.lineTo(vx-s+1,vy+s*.5+3);
+      ctx.closePath();ctx.fillStyle='rgba(0,0,0,.4)';ctx.fill();
+      // 본체
+      ctx.beginPath();
+      ctx.moveTo(vx,vy-s*1.1);ctx.lineTo(vx+s,vy+s*.5);
+      ctx.lineTo(vx+s,vy+s*1.0);ctx.lineTo(vx-s,vy+s*1.0);ctx.lineTo(vx-s,vy+s*.5);
+      ctx.closePath();
+      const sg=ctx.createLinearGradient(vx,vy-s,vx,vy+s);
+      sg.addColorStop(0,lightenHex(col,40));sg.addColorStop(1,col);
+      ctx.fillStyle=sg;ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1.5;ctx.stroke();
+    }else{
+      // 도시
+      ctx.beginPath();ctx.arc(vx+1,vy+2,s*1.15,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,.4)';ctx.fill();
+      ctx.beginPath();ctx.arc(vx,vy,s*1.15,0,Math.PI*2);
+      const cg=ctx.createRadialGradient(vx-s*.3,vy-s*.3,s*.1,vx,vy,s*1.15);
+      cg.addColorStop(0,lightenHex(col,50));cg.addColorStop(1,col);
+      ctx.fillStyle=cg;ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=2;ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,.9)';
+      ctx.font=`bold ${Math.round(s)}px sans-serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('C',vx,vy);
+    }
+  });
+}
+
+function lightenHex(hex,amt){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  const toHex=v=>Math.min(255,v+amt).toString(16).padStart(2,'0');
+  return`#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/* ════ 배치 가능 체크 ════ */
+function canSettle(vi){
+  if(G.vertices[vi].building)return false;
+  for(const{vi:ni}of(_adj.vertAdj[vi]||[])){if(G.vertices[ni].building)return false;}
+  if(G.phase==='setup')return true;
+  for(const{ei}of(_adj.vertAdj[vi]||[])){if(G.edges[ei].road===myColor)return true;}
+  return false;
+}
+
+function canRoad(ei,color){
+  color=color||myColor;
+  if(G.edges[ei].road)return false;
+  const e=G.edges[ei];
+  const vi1=_adj.vIdx[e.vk1],vi2=_adj.vIdx[e.vk2];
+  for(const vi of[vi1,vi2]){
+    if(vi===undefined)continue;
+    const v=G.vertices[vi];
+    if(v.building&&v.owner&&v.owner!==color)continue;
+    if(v.building&&v.owner===color)return true;
+    for(const{ei:nei}of(_adj.vertAdj[vi]||[])){
+      if(nei!==ei&&G.edges[nei].road===color)return true;
+    }
+  }
+  return false;
+}
+
+// 설정 단계에서 방금 배치한 마을에만 도로 연결 가능
+function canRoadSetup(ei,setupVi){
+  if(G.edges[ei].road)return false;
+  const e=G.edges[ei];
+  const vi1=_adj.vIdx[e.vk1],vi2=_adj.vIdx[e.vk2];
+  return vi1===setupVi||vi2===setupVi;
+}
+
+/* ════ 캔버스 클릭 ════ */
+cv.addEventListener('click',e=>{
+  if(!G)return;
+  if(!isMyTurn()&&bm!=='robber')return;
+  const rect=cv.getBoundingClientRect();
+  const scx=cv.width/rect.width,scy=cv.height/rect.height;
+  const mx=(e.clientX-rect.left)*scx-_cx;
+  const my=(e.clientY-rect.top)*scy-_cy;
+
+  if(bm==='robber'){
+    let best=null,bestD=HS*1.4;
+    G.tiles.forEach((t,ti)=>{if(!t.hasRobber){const p=axial2px0(t.q,t.r),d=Math.hypot(mx-p.x,my-p.y);if(d<bestD){bestD=d;best=ti;}}});
+    if(best!==null)placeRobber(best);return;
+  }
+  if(bm==='settlement'||bm==='setup'){
+    let best=null,bestD=HS*.75;
+    G.vertices.forEach((v,i)=>{if(!v.building&&canSettle(i)){const d=Math.hypot(mx-v.x,my-v.y);if(d<bestD){bestD=d;best=i;}}});
+    if(best!==null)doSettle(best);return;
+  }
+  if(bm==='road'||bm==='setup-road'){
+    let best=null,bestD=HS*.7;
+    G.edges.forEach((e2,i)=>{
+      const cx=(e2.x1+e2.x2)/2,cy=(e2.y1+e2.y2)/2,d=Math.hypot(mx-cx,my-cy);
+      // 설정 단계: 방금 놓은 마을에서만 도로 배치
+      const ok=bm==='setup-road'?canRoadSetup(i,G._lastSettleVI):canRoad(i);
+      if(!e2.road&&ok&&d<bestD){bestD=d;best=i;}
+    });
+    if(best!==null)doRoad(best);return;
+  }
+  if(bm==='city'){
+    let best=null,bestD=HS*.75;
+    G.vertices.forEach((v,i)=>{
+      if(v.building==='settlement'&&v.owner===myColor){
+        const d=Math.hypot(mx-v.x,my-v.y);if(d<bestD){bestD=d;best=i;}
+      }
+    });
+    if(best!==null)doCity(best);
+  }
+});
+
+/* ════ 설정 순서 ════ */
+function setupSeq(to){return[...to,...[...to].reverse()];}
+function curSetupColor(){if(!G)return null;return setupSeq(G.turnOrder)[G.setupTurn||0];}
+function isMyTurn(){
+  if(!G)return false;
+  if(G.phase==='setup')return curSetupColor()===myColor;
+  return(G.turnOrder||[])[G.currentTurn||0]===myColor;
+}
+
+/* ════ 건설 행동 ════ */
+function doSettle(vi){
+  const s=deepCopy(G);
+  s.vertices[vi].building='settlement';
+  s.vertices[vi].owner=myColor;
+  s.players[myColor].score=(s.players[myColor].score||0)+1;
+  s._lastSettleVI=vi;
+
+  if(s.phase==='setup'){
+    const step=s.setupTurn||0;
+    const isRound2=step>=s.turnOrder.length;
+    if(isRound2&&_lastSetupTurnProcessed!==step){
+      _lastSetupTurnProcessed=step;
+      const gained={};
+      (_adj.vertTileAdj[vi]||[]).forEach(ti=>{
+        const t=s.tiles[ti];
+        if(t.resource!=='desert'){
+          s.players[myColor].resources[t.resource]=(s.players[myColor].resources[t.resource]||0)+1;
+          gained[t.resource]=(gained[t.resource]||0)+1;
+        }
+      });
+      if(Object.keys(gained).length>0){
+        const gl=Object.entries(gained).map(([r,n])=>`${RE[r]}${RK[r]}×${n}`).join(' ');
+        addLog(`🏠 2라운드 초기 자원 획득: ${gl}`);
+        showResPopup(Object.entries(gained).map(([r,n])=>({r,n})));
+      }
+    }
+    s.setupSubStep=1;
+    bm='setup-road';
+    showBuildHint('🛤 도로를 배치하세요');
+    pushState(s);drawBoard();
+  }else{
+    // 건설 수 상한 체크
+    const owned=countBuildings(s,myColor,'settlement');
+    if(owned>=MAX_SETTLEMENTS){addLog('마을 최대 5개');return;}
+    if(!hasRes({wood:1,brick:1,sheep:1,wheat:1})){addLog('자원 부족');return;}
+    deductRes(s,myColor,{wood:1,brick:1,sheep:1,wheat:1});
+    addLog(`${myName} 마을 건설 🏘`);
+    bm=null;updateBMBtns();checkWin(s);pushState(s);drawBoard();
   }
 }
 
-async function startApp() {
-  initAudio();
-  document.getElementById('start-btn').disabled = true;
-  document.getElementById('loading-text').style.display = 'block';
-  document.getElementById('loading-text').textContent = 'MediaPipe 로딩 중...';
+function countBuildings(s,color,type){
+  return s.vertices.filter(v=>v.owner===color&&(type?v.building===type:v.building)).length;
+}
+function countRoads(s,color){return s.edges.filter(e=>e.road===color).length;}
 
-  hands = new Hands({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-  hands.setOptions({
-    maxNumHands: 2,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.5
-  });
-  hands.onResults(onResults);
+function doRoad(ei){
+  const s=deepCopy(G);
+  s.edges[ei].road=myColor;
 
-  const videoEl = document.getElementById('video');
-  camera = new Camera(videoEl, {
-    onFrame: async () => { await hands.send({image: videoEl}); },
-    width: 1280,
-    height: 720
-  });
-
-  try {
-    await camera.start();
-    document.getElementById('start-overlay').style.display = 'none';
-  } catch(e) {
-    document.getElementById('loading-text').textContent = '카메라 오류: ' + e.message;
-    document.getElementById('start-btn').disabled = false;
+  if(s.phase==='setup'){
+    updateLongestRoad(s);
+    const order=setupSeq(s.turnOrder);
+    const nextTurn=(s.setupTurn||0)+1;
+    if(nextTurn>=order.length){
+      s.phase='play';s.gamePhase='roll';s.currentTurn=0;
+      s.setupTurn=nextTurn;s.setupSubStep=0;s._lastSettleVI=-1;
+      bm=null;addLog('✅ 배치 완료! 게임 시작!');
+    }else{
+      s.setupTurn=nextTurn;s.setupSubStep=0;s._lastSettleVI=-1;
+      const np=order[nextTurn];
+      bm=(np===myColor)?'setup':null;
+      if(np===myColor)showBuildHint('🏘 마을을 배치하세요');
+      addLog(`${np}: 마을을 배치하세요`);
+    }
+    pushState(s);drawBoard();updateSidebar();
+  }else{
+    if(countRoads(s,myColor)>=MAX_ROADS){addLog('도로 최대 15개');return;}
+    if(G.roadBuildingLeft>0){
+      // 도로건설 카드: 자원 무료
+    }else{
+      if(!hasRes({wood:1,brick:1})){addLog('자원 부족');return;}
+      deductRes(s,myColor,{wood:1,brick:1});
+    }
+    updateLongestRoad(s);
+    addLog(`${myName} 도로 건설 🛤`);
+    if((s.roadBuildingLeft||0)>0){
+      s.roadBuildingLeft--;
+      if(s.roadBuildingLeft>0){bm='road';updateBMBtns();showBuildHint('🛤 도로 1개 더 배치하세요');}
+      else{bm=null;updateBMBtns();hideBuildHint();addLog('도로건설 카드: 2개 완료');}
+    }else{bm=null;updateBMBtns();hideBuildHint();}
+    pushState(s);drawBoard();
   }
 }
 
-buildGrid();
-buildStrings();
+function doCity(vi){
+  const owned=countBuildings(G,myColor,'city');
+  if(owned>=MAX_CITIES){addLog('도시 최대 4개');return;}
+  if(!hasRes({wheat:2,ore:3})){addLog('자원 부족');return;}
+  const s=deepCopy(G);
+  deductRes(s,myColor,{wheat:2,ore:3});
+  s.vertices[vi].building='city';
+  s.players[myColor].score=(s.players[myColor].score||0)+1;
+  addLog(`${myName} 도시 건설 🏙`);
+  bm=null;updateBMBtns();hideBuildHint();checkWin(s);pushState(s);drawBoard();
+}
+
+function setBM(mode){
+  if(!isMyTurn()||G.phase==='setup')return;
+  if(G.gamePhase!=='build'&&G.gamePhase!=='preroll'){addLog('주사위를 먼저 굴리세요');return;}
+  if(mode==='road'&&G.gamePhase==='preroll'&&!(G.roadBuildingLeft>0)){addLog('주사위를 먼저 굴리세요');return;}
+  const costs={road:{wood:1,brick:1},settlement:{wood:1,brick:1,sheep:1,wheat:1},city:{wheat:2,ore:3}};
+  if(mode==='road'&&(G.roadBuildingLeft||0)>0){bm='road';updateBMBtns();showBuildHint('🛤 도로를 배치하세요');drawBoard();return;}
+  if(costs[mode]&&!hasRes(costs[mode])){addLog('자원 부족');return;}
+  bm=bm===mode?null:mode;
+  if(bm)showBuildHint({road:'🛤 도로를 배치하세요',settlement:'🏘 마을을 배치하세요',city:'🏙 도시로 업그레이드할 마을 선택'}[bm]);
+  else hideBuildHint();
+  updateBMBtns();drawBoard();
+}
+
+function updateBMBtns(){
+  ['br','bs','bc'].forEach(id=>{
+    const m={br:'road',bs:'settlement',bc:'city'}[id];
+    document.getElementById(id+'-btn')?.classList.toggle('active-a',bm===m);
+  });
+}
+
+/* ════ 주사위 ════ */
+function rollDice(){
+  if(!isMyTurn()||G.phase==='setup')return;
+  if(G.gamePhase!=='roll'&&G.gamePhase!=='preroll'){addLog('이미 굴렸습니다');return;}
+  const d1=Math.ceil(Math.random()*6),d2=Math.ceil(Math.random()*6),total=d1+d2;
+  const s=deepCopy(G);
+  s.lastDice=[d1,d2];s.diceRolledBy=myColor;s.gamePhase='build';
+
+  if(total===7){
+    // 7 처리: 버려야 할 플레이어 목록 계산
+    const mustDiscard={};
+    Object.entries(s.players).forEach(([col,p])=>{
+      const tot=Object.values(p.resources||{}).reduce((a,b)=>a+b,0);
+      if(tot>7)mustDiscard[col]=Math.floor(tot/2);
+    });
+    s.discardRequired=mustDiscard;
+    s.discardDone={};
+    s.pendingRobber=true;
+    addLog(`🎲 ${d1}+${d2}=7! 🦹 도둑 출동`);
+    pushState(s);
+    // 자신이 버려야 하는지 확인
+    if(mustDiscard[myColor]){
+      showDiscardModal(myColor,mustDiscard[myColor],s);
+    }else{
+      bm='robber';
+      showBuildHint('🦹 도둑을 이동할 타일을 클릭하세요');
+    }
+  }else{
+    const gainedMap={};
+    prodRes(s,total,gainedMap);
+    s.lastGained=gainedMap; // 모든 플레이어에게 공유
+    const myGain=gainedMap[myColor];
+    if(myGain&&Object.keys(myGain).length){
+      showResPopup(Object.entries(myGain).map(([r,n])=>({r,n})));
+    }
+    showDiceToast(d1,d2,myColor);
+    setTimeout(()=>showAllGainedPopup(gainedMap,total),600);
+    addLog(`🎲 ${d1}+${d2}=${total}`);
+    pushState(s);
+  }
+  updateSidebar();
+}
+
+/* ════ 버려야 할 카드 선택 모달 ════ */
+function showDiscardModal(color,count,s){
+  const res=(s||G).players[color].resources;
+  let h=`<h2>카드 버리기</h2><p>${color===myColor?'나':color} — <b style="color:var(--gold2)">${count}장</b>을 버려야 합니다</p><div class="discard-grid">`;
+  const sel={};
+  Object.keys(RK).forEach(r=>{
+    sel[r]=0;
+    const have=res[r]||0;
+    if(have>0)h+=`<div class="disc-row"><span>${RE[r]} ${RK[r]} (${have})</span><div style="display:flex;align-items:center;gap:6px"><button onclick="adjDiscard('${r}',-1)" style="padding:2px 7px;border:1px solid var(--brown3);border-radius:4px;background:rgba(255,255,255,.06);cursor:pointer;color:#eee;font-size:13px">−</button><span id="dsc-${r}">0</span><button onclick="adjDiscard('${r}',1,'${have}')" style="padding:2px 7px;border:1px solid var(--brown3);border-radius:4px;background:rgba(255,255,255,.06);cursor:pointer;color:#eee;font-size:13px">+</button></div></div>`;
+  });
+  h+=`</div><div id="dsc-remain" style="font-size:12px;color:var(--gold2);margin-bottom:10px">남은 버려야 할 수: ${count}</div>`;
+  h+=`<button class="btn primary" id="dsc-ok" onclick="confirmDiscard('${color}',${count})" disabled style="opacity:.5">확인</button>`;
+  showM(h);
+  window._dscSel=sel;window._dscTarget=count;window._dscColor=color;
+}
+window.adjDiscard=function(r,delta,max){
+  const sel=window._dscSel||{};
+  const res=G.players[window._dscColor||myColor].resources;
+  const have=res[r]||0;
+  sel[r]=Math.max(0,Math.min(have,parseInt(max||have),(sel[r]||0)+delta));
+  document.getElementById('dsc-'+r).textContent=sel[r];
+  const total=Object.values(sel).reduce((a,b)=>a+b,0);
+  const rem=window._dscTarget-total;
+  const el=document.getElementById('dsc-remain');
+  if(el)el.textContent='남은 버려야 할 수: '+Math.max(0,rem);
+  const ok=document.getElementById('dsc-ok');
+  if(ok){const ready=total===window._dscTarget;ok.disabled=!ready;ok.style.opacity=ready?'1':'.5';}
+};
+window.confirmDiscard=function(color,count){
+  const sel=window._dscSel||{};
+  const total=Object.values(sel).reduce((a,b)=>a+b,0);
+  if(total!==count){addLog('정확히 '+count+'장을 버려야 합니다');return;}
+  const s=deepCopy(G);
+  Object.entries(sel).forEach(([r,n])=>{if(n>0)s.players[color].resources[r]=Math.max(0,(s.players[color].resources[r]||0)-n);});
+  if(!s.discardDone)s.discardDone={};
+  s.discardDone[color]=true;
+  addLog(`${color} ${count}장 버림`);
+  // 모두 버렸는지 확인
+  const allDone=Object.keys(s.discardRequired||{}).every(c=>s.discardDone[c]);
+  if(allDone&&s.pendingRobber&&color===myColor){
+    s.pendingRobber=false;
+    pushState(s);closeModal();
+    bm='robber';showBuildHint('🦹 도둑을 이동할 타일을 클릭하세요');drawBoard();updateSidebar();
+  }else{
+    pushState(s);closeModal();
+    if(s.pendingRobber&&isMyTurn()){
+      // 다른 플레이어 대기 중
+      bm='robber';showBuildHint('🦹 도둑을 이동할 타일을 클릭하세요');
+    }
+    drawBoard();updateSidebar();
+  }
+};
+
+/* ════ 은행 재고 ════ */
+function getBankStock(s){
+  const stock={wood:19,brick:19,sheep:19,wheat:19,ore:19};
+  Object.values(s.players).forEach(p=>{Object.entries(p.resources||{}).forEach(([r,n])=>{if(stock[r]!==undefined)stock[r]-=n;});});
+  return stock;
+}
+
+function prodRes(s,roll,gainedMap){
+  const bank=getBankStock(s);
+  s.tiles.forEach((t,ti)=>{
+    if(t.number!==roll||t.hasRobber)return;
+    const req={};
+    s.vertices.forEach((v,vi)=>{
+      if(!v.building||!v.owner)return;
+      if((_adj.vertTileAdj[vi]||[]).includes(ti)){
+        const amt=v.building==='city'?2:1;
+        req[v.owner]=(req[v.owner]||0)+amt;
+      }
+    });
+    const totalReq=Object.values(req).reduce((a,b)=>a+b,0);
+    if(totalReq===0)return;
+    if(totalReq<=(bank[t.resource]||0)){
+      Object.entries(req).forEach(([owner,amt])=>{
+        s.players[owner].resources[t.resource]=(s.players[owner].resources[t.resource]||0)+amt;
+        bank[t.resource]-=amt;
+        if(gainedMap){gainedMap[owner]=gainedMap[owner]||{};gainedMap[owner][t.resource]=(gainedMap[owner][t.resource]||0)+amt;}
+      });
+    }else{
+      addLog(`🏦 ${RK[t.resource]} 재고 부족 — 지급 불가`);
+    }
+  });
+}
+
+/* ════ 도둑 ════ */
+function placeRobber(ti){
+  const s=deepCopy(G);
+  const p=axial2px0(s.tiles[ti].q,s.tiles[ti].r);
+  s.tiles.forEach((t,i)=>t.hasRobber=(i===ti));
+  s.pendingRobber=false;
+  bm=null;hideBuildHint();
+  const victims=[...new Set(s.vertices.filter(v=>{
+    if(!v.owner||v.owner===myColor)return false;
+    return Math.hypot(v.x-p.x,v.y-p.y)<HS*1.2;
+  }).map(v=>v.owner))];
+  if(victims.length===1){stealFrom(s,victims[0]);pushState(s);drawBoard();updateSidebar();}
+  else if(victims.length>1){pushState(s);showStealChoice(victims);}
+  else{pushState(s);drawBoard();updateSidebar();}
+}
+
+/* ════ 최장 도로 / 최대 기사단 ════ */
+function calcLongestRoad(s,color){
+  const lvi={};s.vertices.forEach((v,i)=>lvi[v._k]=i);
+  const adj=s.vertices.map(()=>[]);
+  s.edges.forEach((e,ei)=>{
+    if(e.road!==color)return;
+    const i1=lvi[e.vk1],i2=lvi[e.vk2];
+    if(i1!==undefined&&i2!==undefined){adj[i1].push({to:i2,ei});adj[i2].push({to:i1,ei});}
+  });
+  let best=0;
+  function dfs(n,vis,len){
+    best=Math.max(best,len);
+    adj[n].forEach(({to,ei})=>{
+      if(vis.has(ei))return;
+      const tv=s.vertices[to];
+      // 상대 건물(마을/도시 모두)로 끊김
+      if(tv.building&&tv.owner&&tv.owner!==color)return;
+      vis.add(ei);dfs(to,vis,len+1);vis.delete(ei);
+    });
+  }
+  // 모든 노드에서 DFS 시작
+  s.vertices.forEach((_,i)=>{if(adj[i].length)dfs(i,new Set(),0);});
+  return best;
+}
+
+function updateLongestRoad(s){
+  const len={};(s.turnOrder||[]).forEach(c=>{len[c]=calcLongestRoad(s,c);});s.roadLengths=len;
+  const cur=s.longestRoadHolder;
+  let best=cur?Math.max(len[cur]||0,4):4,newH=null;
+  (s.turnOrder||[]).forEach(c=>{if((len[c]||0)>best){best=len[c];newH=c;}});
+  if(!newH&&cur&&(len[cur]||0)>=5)newH=cur;
+  if(newH!==cur){
+    if(cur&&s.players[cur])s.players[cur].score=Math.max(0,(s.players[cur].score||0)-2);
+    if(newH&&s.players[newH])s.players[newH].score=(s.players[newH].score||0)+2;
+    s.longestRoadHolder=newH;if(newH)addLog(`🛤 최장 도로: ${newH}(${best}개)`);
+  }
+  s.longestRoadLen=newH?best:0;
+}
+
+function updateLargestArmy(s){
+  const cur=s.largestArmyHolder;
+  let best=cur?Math.max(s.players[cur]?.knightsUsed||0,2):2,newH=null;
+  (s.turnOrder||[]).forEach(c=>{const n=s.players[c]?.knightsUsed||0;if(n>best){best=n;newH=c;}});
+  if(!newH&&cur&&(s.players[cur]?.knightsUsed||0)>=3)newH=cur;
+  if(newH!==cur){
+    if(cur&&s.players[cur])s.players[cur].score=Math.max(0,(s.players[cur].score||0)-2);
+    if(newH&&s.players[newH])s.players[newH].score=(s.players[newH].score||0)+2;
+    s.largestArmyHolder=newH;if(newH)addLog(`⚔️ 최대 기사단: ${newH}`);
+    // 최대 기사단 변경으로 승리 체크
+    checkWin(s);
+  }
+}
+
+/* ════ 발전 카드 ════ */
+function buyDev(){
+  if(!isMyTurn()||G.gamePhase!=='build')return;
+  if(!hasRes({sheep:1,wheat:1,ore:1})){addLog('자원 부족');return;}
+  const s=deepCopy(G);deductRes(s,myColor,{sheep:1,wheat:1,ore:1});
+  const deck=s.devDeck||(()=>{const d=[...DEV_DECK_SRC];shuffleArr(d);return d;})();
+  if(!deck.length){addLog('발전 카드 소진');return;}
+  const card=deck.shift();s.devDeck=deck;
+  if(!s.players[myColor].devCards)s.players[myColor].devCards=[];
+  s.players[myColor].devCards.push({type:card,used:false,newCard:true});
+  addLog(`🃏 발전 카드 구매 (${DEV_NAME[card]||card})`);
+  pushState(s);updateSidebar();
+}
+
+function useDevCard(idx){
+  if(!isMyTurn())return;
+  const card=G.players[myColor]?.devCards?.[idx];
+  if(!card||card.used||card.newCard){addLog('이번 턴에 구매한 카드는 다음 턴부터 사용');return;}
+  if(card.type==='victory'){
+    // 승점 카드: 점수가 10점 이상이 되는 경우에만 공개하여 승리
+    // 단, 공개 시 점수 +1 (비공개 중에는 점수판에서 숨김)
+    const s=deepCopy(G);
+    s.players[myColor].devCards[idx].used=true;
+    s.players[myColor].score=(s.players[myColor].score||0)+1;
+    addLog(`⭐ 승점 카드 공개! (${s.players[myColor].score}점)`);
+    checkWin(s);pushState(s);updateSidebar();
+    return;
+  }
+  if(card.type==='knight'){useKnight(idx);return;}
+  if(G.gamePhase!=='build'&&G.gamePhase!=='preroll'){addLog('주사위 전후에 사용 가능');return;}
+  if(card.type==='road_building')useRoadBuilding(idx);
+  else if(card.type==='year_of_plenty')showYOP(idx);
+  else if(card.type==='monopoly')showMonopoly(idx);
+}
+
+function useKnight(idx){
+  // 기사: 주사위 전후 모두 사용 가능 — gamePhase가 roll/preroll/build 모두 허용
+  if(G.gamePhase!=='roll'&&G.gamePhase!=='preroll'&&G.gamePhase!=='build'){addLog('사용 불가');return;}
+  const s=deepCopy(G);
+  // preroll → 기사 후 주사위 가능하도록 gamePhase 유지
+  s.players[myColor].devCards[idx].used=true;
+  s.players[myColor].knightsUsed=(s.players[myColor].knightsUsed||0)+1;
+  updateLargestArmy(s);
+  bm='robber';
+  pushState(s);drawBoard();addLog('⚔️ 기사 사용 — 도둑을 이동하세요');
+  showBuildHint('🦹 도둑을 이동할 타일을 클릭하세요');
+}
+
+function useRoadBuilding(idx){
+  const s=deepCopy(G);
+  s.players[myColor].devCards[idx].used=true;
+  s.roadBuildingLeft=2;
+  pushState(s);
+  bm='road';updateBMBtns();drawBoard();
+  showBuildHint('🛤 도로를 2개 배치하세요');
+  addLog('🛤 도로건설 카드 — 도로 2개 배치');
+}
+
+function showYOP(idx){
+  let h=`<h2>풍요의 해</h2><p>자원 2장 선택</p><div class="tgrid" id="yop-g">`;
+  Object.keys(RK).forEach(r=>{h+=`<div class="ti" id="yop-${r}" onclick="selYop('${r}')">${RE[r]} ${RK[r]}</div>`;});
+  h+=`</div><button class="btn primary" id="yop-ok" onclick="doYOP(${idx})" disabled style="opacity:.5">받기</button><button class="btn" onclick="closeModal()">취소</button>`;
+  showM(h);window._yop=[];
+}
+window.selYop=function(r){
+  if(!window._yop)window._yop=[];
+  const i=window._yop.indexOf(r);
+  if(i>=0){window._yop.splice(i,1);document.getElementById('yop-'+r)?.classList.remove('sel');}
+  else if(window._yop.length<2){window._yop.push(r);document.getElementById('yop-'+r)?.classList.add('sel');}
+  const ok=window._yop.length===2;const b=document.getElementById('yop-ok');
+  if(b){b.disabled=!ok;b.style.opacity=ok?'1':'.5';}
+};
+window.doYOP=function(idx){
+  if(!window._yop||window._yop.length!==2)return;
+  const bank=getBankStock(G);
+  const s=deepCopy(G);
+  s.players[myColor].devCards[idx].used=true;
+  let failed=false;
+  window._yop.forEach(r=>{
+    if((bank[r]||0)<=0){addLog(`🏦 ${RK[r]} 재고 없음`);failed=true;}
+    else{s.players[myColor].resources[r]=(s.players[myColor].resources[r]||0)+1;bank[r]--;}
+  });
+  if(!failed)addLog(`🌾 풍요의 해: ${window._yop.map(r=>RK[r]).join('+')} 획득`);
+  pushState(s);closeModal();updateSidebar();
+};
+
+function showMonopoly(idx){
+  let h=`<h2>독점</h2><p>독점할 자원 선택</p><div class="tgrid" id="mono-g">`;
+  Object.keys(RK).forEach(r=>{h+=`<div class="ti" id="mono-${r}" onclick="selMono('${r}')">${RE[r]} ${RK[r]}</div>`;});
+  h+=`</div><button class="btn primary" id="mono-ok" onclick="doMono(${idx})" disabled style="opacity:.5">독점</button><button class="btn" onclick="closeModal()">취소</button>`;
+  showM(h);
+}
+window.selMono=function(r){
+  window._mono=r;
+  document.querySelectorAll('#mono-g .ti').forEach(e=>e.classList.remove('sel'));
+  document.getElementById('mono-'+r)?.classList.add('sel');
+  const b=document.getElementById('mono-ok');if(b){b.disabled=false;b.style.opacity='1';}
+};
+window.doMono=function(idx){
+  if(!window._mono)return;
+  const s=deepCopy(G);s.players[myColor].devCards[idx].used=true;
+  let tot=0;
+  (s.turnOrder||[]).forEach(col=>{
+    if(col===myColor)return;
+    const n=s.players[col]?.resources[window._mono]||0;
+    s.players[col].resources[window._mono]=0;
+    s.players[myColor].resources[window._mono]=(s.players[myColor].resources[window._mono]||0)+n;
+    tot+=n;
+  });
+  addLog(`🎯 독점: ${RK[window._mono]} ${tot}장 획득`);
+  pushState(s);closeModal();updateSidebar();
+};
+
+/* ════ 거래 ════ */
+function getPortRates(){
+  const r={wood:4,brick:4,sheep:4,wheat:4,ore:4};
+  G.vertices.forEach(v=>{
+    if(!v.port||v.owner!==myColor)return;
+    const{ratio,res}=v.port;
+    if(res)r[res]=Math.min(r[res],ratio);
+    else Object.keys(r).forEach(k=>{r[k]=Math.min(r[k],ratio);});
+  });
+  return r;
+}
+
+function openBank(){
+  if(!isMyTurn()||G.gamePhase!=='build'){addLog('내 차례 건설 단계에만 가능');return;}
+  const rates=getPortRates(),res=getMyRes();
+  let h=`<h2>은행 거래</h2><p>줄 자원 선택</p><div class="tgrid" id="give-g">`;
+  Object.keys(RK).forEach(r=>{
+    const n=res[r]||0,rate=rates[r],ok=n>=rate;
+    h+=`<div class="ti${ok?'':' dis'}" id="give-${r}" onclick="selTr('give','${r}')">${RE[r]} ${RK[r]}<br><small style="color:rgba(255,255,255,.4)">${n}/${rate}:1</small></div>`;
+  });
+  h+=`</div><p style="margin:6px 0 4px;font-size:11px;font-weight:700;color:rgba(255,255,255,.6)">받을 자원</p><div class="tgrid" id="get-g">`;
+  Object.keys(RK).forEach(r=>{h+=`<div class="ti" id="get-${r}" onclick="selTr('get','${r}')">${RE[r]} ${RK[r]}</div>`;});
+  h+=`</div><div style="display:flex;gap:6px;margin-top:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="bank-ok" onclick="doBank()" disabled style="opacity:.5">교환</button></div>`;
+  showM(h);window._tg=null;window._tk=null;window._rates=rates;
+}
+window.selTr=function(side,r){
+  if(side==='give'){window._tg=r;document.querySelectorAll('#give-g .ti').forEach(e=>e.classList.remove('sel'));document.getElementById('give-'+r)?.classList.add('sel');}
+  else{window._tk=r;document.querySelectorAll('#get-g .ti').forEach(e=>e.classList.remove('sel'));document.getElementById('get-'+r)?.classList.add('sel');}
+  const ok=window._tg&&window._tk&&window._tg!==window._tk;
+  const b=document.getElementById('bank-ok');if(b){b.disabled=!ok;b.style.opacity=ok?'1':'.5';}
+};
+window.doBank=function(){
+  const g=window._tg,t=window._tk,rate=(window._rates||{})[g]||4;
+  if(!g||!t||g===t)return;
+  if(!hasRes({[g]:rate})){addLog('자원 부족');closeModal();return;}
+  // 은행 재고 확인
+  const bank=getBankStock(G);
+  if((bank[t]||0)<=0){addLog(`🏦 ${RK[t]} 재고 없음`);closeModal();return;}
+  const s=deepCopy(G);
+  s.players[myColor].resources[g]-=rate;
+  s.players[myColor].resources[t]=(s.players[myColor].resources[t]||0)+1;
+  addLog(`🏦 ${RK[g]}×${rate} → ${RK[t]}×1`);
+  pushState(s);closeModal();updateSidebar();
+};
+
+function openPlayerTrade(){
+  if(!isMyTurn()||G.gamePhase!=='build'){addLog('내 차례 건설 단계에만 가능');return;}
+  const others=(G.turnOrder||[]).filter(c=>c!==myColor);
+  if(!others.length){addLog('다른 플레이어 없음');return;}
+  const mr=getMyRes();
+  let h=`<h2>플레이어 거래</h2><table style="width:100%;font-size:11px;margin-bottom:8px;border-collapse:collapse">
+  <tr><th style="text-align:left;padding-bottom:4px;color:rgba(255,255,255,.4);font-weight:500">자원</th><th style="color:rgba(255,255,255,.4);font-weight:500">줄</th><th style="color:rgba(255,255,255,.4);font-weight:500">받을</th></tr>`;
+  Object.keys(RK).forEach(r=>{
+    h+=`<tr><td style="padding:3px 0">${RE[r]} ${RK[r]}</td>
+    <td style="text-align:center"><input type="number" class="pinput" id="gp-${r}" min="0" max="${mr[r]||0}" value="0"></td>
+    <td style="text-align:center"><input type="number" class="pinput" id="wp-${r}" min="0" value="0"></td></tr>`;
+  });
+  h+=`</table><p style="font-size:11px;font-weight:700;margin-bottom:5px;color:rgba(255,255,255,.6)">대상 플레이어</p><div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">`;
+  others.forEach(c=>{h+=`<div class="ti" id="tgt-${c}" onclick="selPT('${c}')" style="flex:1;border-left:3px solid ${PC[c]}">${c}</div>`;});
+  h+=`</div><div style="display:flex;gap:6px"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" onclick="sendOffer()">제안</button></div>`;
+  showM(h);window._ptT=null;
+}
+window.selPT=function(c){window._ptT=c;document.querySelectorAll('[id^="tgt-"]').forEach(e=>e.classList.remove('sel'));document.getElementById('tgt-'+c)?.classList.add('sel');};
+window.sendOffer=function(){
+  if(!window._ptT){addLog('대상 선택');return;}
+  const gives={},wants={};let hg=false,hw=false;
+  Object.keys(RK).forEach(r=>{
+    const g=parseInt(document.getElementById('gp-'+r)?.value||0),w=parseInt(document.getElementById('wp-'+r)?.value||0);
+    if(g>0){gives[r]=g;hg=true;}if(w>0){wants[r]=w;hw=true;}
+  });
+  if(!hg||!hw){addLog('주고받을 자원을 입력하세요');return;}
+  const s=deepCopy(G);s.tradeOffer={from:myColor,to:window._ptT,gives,wants,status:'pending'};
+  pushState(s);closeModal();addLog(`🤝 ${window._ptT}에게 거래 제안`);
+};
+
+function checkIncomingOffer(){
+  if(!G?.tradeOffer)return;
+  const o=G.tradeOffer;
+  if(o.to!==myColor||o.status!=='pending')return;
+  const{from,gives,wants}=o;
+  let h=`<h2>거래 제안</h2><p style="color:rgba(255,255,255,.5)">${from}의 제안</p>
+  <div style="display:flex;gap:10px;justify-content:center;margin-bottom:12px">
+  <div style="flex:1;text-align:center"><p style="font-size:10px;color:rgba(255,255,255,.35);margin-bottom:4px">받는 것</p>`;
+  Object.entries(gives).forEach(([r,n])=>{h+=`<p style="font-size:14px;color:var(--gold2)">${RE[r]} ${RK[r]} <b>×${n}</b></p>`;});
+  h+=`</div><div style="font-size:22px;display:flex;align-items:center;color:rgba(255,255,255,.3)">⇄</div><div style="flex:1;text-align:center"><p style="font-size:10px;color:rgba(255,255,255,.35);margin-bottom:4px">주는 것</p>`;
+  Object.entries(wants).forEach(([r,n])=>{h+=`<p style="font-size:14px;color:#e08060">${RE[r]} ${RK[r]} <b>×${n}</b></p>`;});
+  h+=`</div></div><div style="display:flex;gap:6px">
+  <button class="btn" onclick="respondTrade('reject')">거절</button>
+  <button class="btn primary" onclick="respondTrade('accept')">수락</button></div>`;
+  showM(h);
+}
+
+window.respondTrade=function(res){
+  const s=deepCopy(G);
+  if(res==='accept'){
+    const{from,gives,wants}=s.tradeOffer;
+    if(!Object.entries(wants).every(([r,n])=>(s.players[myColor].resources[r]||0)>=n)){
+      addLog('자원 부족');s.tradeOffer.status='rejected';pushState(s);closeModal();return;
+    }
+    Object.entries(gives).forEach(([r,n])=>{s.players[myColor].resources[r]=(s.players[myColor].resources[r]||0)+n;s.players[from].resources[r]=Math.max(0,(s.players[from].resources[r]||0)-n);});
+    Object.entries(wants).forEach(([r,n])=>{s.players[myColor].resources[r]=Math.max(0,(s.players[myColor].resources[r]||0)-n);s.players[from].resources[r]=(s.players[from].resources[r]||0)+n;});
+    addLog(`✅ ${from}과 거래 완료`);
+  }else addLog(`❌ ${G.tradeOffer.from}의 거래 거절`);
+  s.tradeOffer.status=res==='accept'?'accepted':'rejected';
+  pushState(s);closeModal();updateSidebar();
+};
+
+function showStealChoice(victims){
+  let h=`<h2>누구에게?</h2><p>도둑이 해당 타일의 플레이어에게서 자원을 빼앗습니다</p><div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">`;
+  victims.forEach(v=>{h+=`<button class="abtn" style="border-left:3px solid ${PC[v]};justify-content:center" onclick="doSteal('${v}')">${v}</button>`;});
+  h+=`</div>`;showM(h);
+}
+window.doSteal=function(v){closeModal();const s=deepCopy(G);stealFrom(s,v);pushState(s);drawBoard();updateSidebar();};
+function stealFrom(s,v){
+  const vr=Object.entries(s.players[v]?.resources||{}).filter(([,n])=>n>0);
+  if(vr.length>0){
+    const pick=vr[Math.floor(Math.random()*vr.length)];
+    s.players[v].resources[pick[0]]-=1;
+    s.players[myColor].resources[pick[0]]=(s.players[myColor].resources[pick[0]]||0)+1;
+    addLog(`⚔️ ${v}에서 ${RK[pick[0]]} 빼앗음`);
+  }else addLog(`${v}은 자원이 없음`);
+}
+
+/* ════ 승리 체크 ════ */
+function checkWin(s){
+  (s.turnOrder||[]).forEach(col=>{
+    if((s.players[col]?.score||0)>=10&&!s.winner){
+      s.winner=col;s.phase='ended';
+      setTimeout(()=>showVictory(col,s.players[col].score),300);
+    }
+  });
+}
+function showVictory(col,score){
+  const h=`<h2 style="font-size:24px">🎉 ${col} 승리!</h2>
+  <p style="font-size:16px;color:var(--gold2);margin-bottom:8px">${score}점으로 카탄 정복!</p>
+  <div style="font-size:48px;margin:12px 0">👑</div>
+  <p style="font-size:12px;color:rgba(255,255,255,.4)">수고하셨습니다</p>
+  <button class="btn" style="margin-top:12px" onclick="closeModal()">닫기</button>`;
+  showM(h);
+}
+
+/* ════ 차례 종료 ════ */
+function endTurn(){
+  if(!isMyTurn())return;
+  if(G.phase==='setup')return;
+  if(G.gamePhase==='roll'||G.gamePhase==='preroll'){addLog('주사위를 먼저 굴리세요');return;}
+  if((G.roadBuildingLeft||0)>0){addLog(`도로 ${G.roadBuildingLeft}개 더 배치해야 합니다`);return;}
+  if(G.pendingRobber){addLog('도둑을 먼저 이동하세요');return;}
+  const s=deepCopy(G);
+  s.currentTurn=((s.currentTurn||0)+1)%s.turnOrder.length;
+  s.gamePhase='roll';s.tradeOffer=null;s.roadBuildingLeft=0;s.discardRequired={};s.discardDone={};
+  // 이번 턴에 구매한 카드 newCard 해제
+  if(s.players[myColor]?.devCards)s.players[myColor].devCards.forEach(c=>{if(!c.used)c.newCard=false;});
+  bm=null;updateBMBtns();hideBuildHint();
+  document.getElementById('d1').textContent='—';
+  document.getElementById('d2').textContent='—';
+  document.getElementById('dtotal').textContent='';
+  document.getElementById('end-btn').style.opacity='.35';
+  pushState(s);updateSidebar();drawBoard();
+}
+
+/* ════ 사이드바 업데이트 ════ */
+function updateSidebar(){
+  if(!G)return;
+  const isMe=isMyTurn();
+  const curColor=G.phase==='setup'?curSetupColor():(G.turnOrder||[])[G.currentTurn||0];
+
+  // 차례 배너
+  const banner=document.getElementById('turn-banner');
+  const colorBar=document.getElementById('turn-color-bar');
+  if(banner){
+    if(isMe){
+      banner.textContent='✦ 내 차례';
+      banner.className='turn-banner my-turn';
+    }else{
+      banner.textContent=`${curColor||'?'}의 차례`;
+      banner.className='turn-banner opp-turn';
+    }
+  }
+  if(colorBar)colorBar.style.background=curColor?PC[curColor]:'transparent';
+
+  // 보드 글로우
+  const ba=document.getElementById('board-area');
+  if(ba){
+    ba.classList.toggle('my-turn-glow',isMe);
+    ba.classList.toggle('opp-turn-dim',!isMe);
+  }
+
+  // 하단 오버레이
+  const ov=document.getElementById('opp-overlay');
+  const om=document.getElementById('opp-msg');
+  if(ov&&om){
+    if(!isMe&&curColor){
+      om.textContent=`${curColor}의 차례 — 기다리는 중...`;
+      ov.classList.add('show');
+    }else{
+      ov.classList.remove('show');
+    }
+  }
+
+  // 페이즈 레이블
+  const ss=G.setupSubStep||0;
+  const phases={roll:'🎲 주사위를 굴리세요',preroll:'🃏 기사 사용 가능 | 또는 🎲 굴리기',build:'🔨 건설 또는 거래',setup_s:'🏘 마을을 배치하세요',setup_r:'🛤 도로를 배치하세요'};
+  let gp=G.phase==='setup'?(ss===0?'setup_s':'setup_r'):(G.gamePhase||'roll');
+  const pl=document.getElementById('phase-lbl');if(pl)pl.textContent=phases[gp]||gp;
+
+  // 주사위 표시
+  const dice=G.lastDice||[];
+  if(dice.length===2){
+    const d1=document.getElementById('d1'),d2=document.getElementById('d2');
+    const dt=document.getElementById('dtotal');
+    if(d1)d1.textContent=getDieFace(dice[0]);
+    if(d2)d2.textContent=getDieFace(dice[1]);
+    const total=dice[0]+dice[1];
+    if(dt)dt.textContent=total||'';
+    if(d1)d1.className='die'+(dice[0]===6||dice[0]===5?'':'')+((dice[0]+dice[1]===7)?'':' ');
+    if(d1){d1.className='die';if(dice[0]===6||dice[0]===5||dice[0]===4)d1.className='die red-val';}
+    if(d2){d2.className='die';if(dice[1]===6||dice[1]===5||dice[1]===4)d2.className='die red-val';}
+  }
+
+  // 내 자원
+  const rDiv=document.getElementById('my-res');
+  if(rDiv){
+    const r=getMyRes();
+    rDiv.innerHTML=Object.keys(RK).map(k=>`
+      <div class="res-item">
+        <div class="ri" style="background:${RC[k]}">${RE[k]}</div>
+        <span style="color:rgba(255,255,255,.7)">${RK[k]}</span>
+        <span class="res-count">${r[k]||0}</span>
+      </div>`).join('');
+  }
+
+  // 발전 카드
+  const dcl=document.getElementById('dc-list');
+  if(dcl){
+    const cards=G.players?.[myColor]?.devCards||[];
+    if(!cards.length)dcl.innerHTML='<p style="font-size:10px;color:rgba(255,255,255,.25)">없음</p>';
+    else dcl.innerHTML=cards.map((c,i)=>{
+      const prerollOk=(c.type==='knight')&&(G.gamePhase==='roll'||G.gamePhase==='preroll'||G.gamePhase==='build');
+      const buildOk=G.gamePhase==='build';
+      const usable=!c.used&&!c.newCard&&isMe&&(prerollOk||buildOk);
+      return`<div class="dc${c.newCard?' new-c':''}">
+        <span>${DEV_NAME[c.type]||c.type}${c.newCard?' <small style="color:var(--gold)">(신규)</small>':''}</span>
+        <button onclick="useDevCard(${i})" ${usable?'':'disabled'}>사용</button></div>`;
+    }).join('');
+  }
+
+  // 점수판 — 승점 카드(미사용)는 숨김
+  const sb=document.getElementById('scoreboard');
+  if(sb){
+    sb.innerHTML=(G.turnOrder||[]).map(col=>{
+      const p=G.players?.[col]||{};
+      const lr=G.longestRoadHolder===col,la=G.largestArmyHolder===col;
+      // 비공개 승점 카드 점수 제외 (사용되지 않은 victory 카드)
+      const hiddenVP=(p.devCards||[]).filter(c=>c.type==='victory'&&!c.used).length;
+      const displayScore=(p.score||0)-(col===myColor?0:hiddenVP);
+      return`<div class="srow">
+        <span style="color:${PC[col]};font-weight:700;display:flex;align-items:center;gap:4px">
+          <span style="width:8px;height:8px;border-radius:50%;background:${PC[col]};display:inline-block"></span>
+          ${col===myColor?myName:col}
+        </span>
+        <span><span class="sval">${col===myColor?p.score||0:displayScore}점</span>${lr?' 🛤':''}${la?' ⚔️':''}</span>
+      </div>`;
+    }).join('');
+  }
+  const sc=document.getElementById('specials');
+  if(sc)sc.innerHTML=`🛤 ${G.longestRoadHolder||'없음'}(${G.longestRoadLen||0}) ⚔️ ${G.largestArmyHolder||'없음'}`;
+
+  // 버튼 활성화
+  const myTurn=isMyTurn(),bp=G.gamePhase==='build';
+  const rb=document.getElementById('roll-btn');
+  if(rb)rb.disabled=!myTurn||G.phase==='setup'||(G.gamePhase!=='roll'&&G.gamePhase!=='preroll');
+  ['br','bs','bc','bd'].forEach(id=>{const b=document.getElementById(id+'-btn');if(b)b.disabled=!myTurn||!bp;});
+  const pt=document.getElementById('ptrade-btn');if(pt)pt.disabled=!myTurn||!bp;
+  const eb=document.getElementById('end-btn');
+  if(eb)eb.style.opacity=(myTurn&&bp)?'1':'.35';
+
+  // 거래 제안 확인
+  if(G.tradeOffer?.to===myColor&&G.tradeOffer?.status==='pending')checkIncomingOffer();
+  // 버려야 할 카드 확인 (Firebase로 받은 상태)
+  if(G.discardRequired?.[myColor]&&!G.discardDone?.[myColor]&&!document.getElementById('moverlay').style.display?.includes('flex')===false){
+    if(document.getElementById('moverlay').style.display==='none')
+      showDiscardModal(myColor,G.discardRequired[myColor],G);
+  }
+}
+
+function getDieFace(n){return['','⚀','⚁','⚂','⚃','⚄','⚅'][n]||n;}
+
+/* ════ 주사위 토스트 ════ */
+let _toastTimer=null;
+function showDiceToast(d1,d2,who){
+  const toast=document.getElementById('dice-toast');
+  const td1=document.getElementById('td1'),td2=document.getElementById('td2');
+  const tt=document.getElementById('toast-total'),tw=document.getElementById('toast-who');
+  const t7=document.getElementById('toast-7');
+  if(!toast)return;
+  const total=d1+d2;
+  td1.textContent=getDieFace(d1);
+  td2.textContent=getDieFace(d2);
+  td1.className='toast-die'+(d1===6||d1===5||d1===8?' red':'');
+  td2.className='toast-die'+(d2===6||d2===5||d2===8?' red':'');
+  tt.textContent=total;
+  tw.textContent=(who===myColor?'내가':'상대가')+' 굴림';
+  t7.style.display=total===7?'block':'none';
+  if(_toastTimer)clearTimeout(_toastTimer);
+  toast.classList.add('show');
+  _toastTimer=setTimeout(()=>toast.classList.remove('show'),total===7?3000:2200);
+  // 사이드바 주사위 애니메이션
+  const sd1=document.getElementById('d1'),sd2=document.getElementById('d2');
+  if(sd1){sd1.classList.add('rolling');setTimeout(()=>sd1.classList.remove('rolling'),500);}
+  if(sd2){sd2.classList.add('rolling');setTimeout(()=>sd2.classList.remove('rolling'),500);}
+}
+
+/* ════ 자원 획득 팝업 ════ */
+let _rpTimer=null;
+function showResPopup(items){
+  if(!items||!items.length)return;
+  const rp=document.getElementById('res-popup');
+  const ri=document.getElementById('res-pop-items');
+  if(!rp||!ri)return;
+  ri.innerHTML=items.map(({r,n})=>`<span class="rpi">${RE[r]}×${n}</span>`).join('');
+  if(_rpTimer)clearTimeout(_rpTimer);
+  rp.classList.add('show');
+  _rpTimer=setTimeout(()=>rp.classList.remove('show'),2200);
+}
+
+// 주사위 결과 후 모든 플레이어 획득 자원을 플로팅 태그로 표시
+const _floatContainer=document.createElement('div');
+_floatContainer.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:180;';
+document.getElementById('board-area')?.appendChild(_floatContainer);
+
+function showAllGainedPopup(gainedMap,total){
+  if(!gainedMap)return;
+  _floatContainer.innerHTML='';
+  const players=Object.entries(gainedMap).filter(([,g])=>g&&Object.keys(g).length>0);
+  if(!players.length)return;
+  players.forEach(([col,gained],pi)=>{
+    const tag=document.createElement('div');
+    const items=Object.entries(gained).map(([r,n])=>`${RE[r]}×${n}`).join(' ');
+    tag.style.cssText=`
+      position:absolute;
+      left:50%;top:${28+pi*38}px;
+      transform:translateX(-50%) translateY(-10px);
+      background:linear-gradient(135deg,rgba(20,10,2,.92),rgba(30,15,4,.95));
+      border:1px solid ${col==='white'?'#9daebf':col==='red'?'#c0392b':col==='blue'?'#2471a3':'#d35400'};
+      border-radius:20px;padding:5px 14px;
+      font-size:12px;color:#fff;white-space:nowrap;
+      box-shadow:0 3px 12px rgba(0,0,0,.5);
+      opacity:0;transition:all .35s cubic-bezier(.34,1.56,.64,1);
+    `;
+    // 플레이어 색 점 + 이름 + 자원
+    tag.innerHTML=`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${col==='white'?'#9daebf':col==='red'?'#c0392b':col==='blue'?'#2471a3':'#d35400'};margin-right:5px;vertical-align:middle"></span><span style="color:rgba(255,255,255,.55);margin-right:6px;font-size:10px">${col===myColor?'나':col}</span>${items}`;
+    _floatContainer.appendChild(tag);
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>{
+        tag.style.opacity='1';
+        tag.style.transform='translateX(-50%) translateY(0)';
+      });
+    });
+  });
+  setTimeout(()=>{
+    Array.from(_floatContainer.children).forEach(el=>{
+      el.style.opacity='0';el.style.transform='translateX(-50%) translateY(-8px)';
+    });
+    setTimeout(()=>{_floatContainer.innerHTML='';},400);
+  },2500);
+}
+
+/* ════ 건설 힌트 ════ */
+function showBuildHint(txt){
+  const el=document.getElementById('build-hint');
+  const t=document.getElementById('build-hint-text');
+  if(el&&t){t.textContent=txt;el.classList.add('show');}
+}
+function hideBuildHint(){
+  document.getElementById('build-hint')?.classList.remove('show');
+}
+
+/* ════ 모달 ════ */
+function showM(html){document.getElementById('mcontent').innerHTML=html;document.getElementById('moverlay').style.display='flex';}
+window.closeModal=function(){document.getElementById('moverlay').style.display='none';};
+
+/* ════ 상태 동기화 ════ */
+function pushState(s){
+  G=s;
+  if(roomId&&roomId!=='solo')db.ref(`rooms/${roomId}/gameState`).set(deepCopy(s));
+}
+
+function listenState(){
+  if(roomId==='solo')return;
+  if(_fbSR)_fbSR.off();
+  _fbSR=db.ref(`rooms/${roomId}/gameState`);
+  let _prevDice=null;
+  _fbSR.on('value',snap=>{
+    const s=snap.val();if(!s)return;
+    if(s.tiles&&!Array.isArray(s.tiles))s.tiles=Object.values(s.tiles);
+    if(s.vertices&&!Array.isArray(s.vertices))s.vertices=Object.values(s.vertices);
+    if(s.edges&&!Array.isArray(s.edges))s.edges=Object.values(s.edges);
+    if(s.portDefs&&!Array.isArray(s.portDefs))s.portDefs=Object.values(s.portDefs);
+    if(s.portDefs)PORT_DEFS=s.portDefs;
+    // 주사위 변화 감지 → 토스트
+    const nd=s.lastDice;
+    if(nd&&_prevDice&&(nd[0]!==_prevDice[0]||nd[1]!==_prevDice[1])){
+      showDiceToast(nd[0],nd[1],s.diceRolledBy||'?');
+      // 자원 획득: lastGained에서 직접 읽기 (모든 플레이어 포함)
+      if(s.lastGained){
+        const myGain=s.lastGained[myColor];
+        if(myGain&&Object.keys(myGain).length){
+          setTimeout(()=>showResPopup(Object.entries(myGain).map(([r,n])=>({r,n}))),500);
+        }
+        // 모든 플레이어 획득 로그
+        setTimeout(()=>showAllGainedPopup(s.lastGained,nd[0]+nd[1]),600);
+      }
+    }
+    _prevDice=nd?[...nd]:null;
+    G=s;
+    rebuildVertexCoords();
+    if(G.phase==='setup'){
+      const cp=curSetupColor();
+      if(cp===myColor)bm=(G.setupSubStep||0)===0?'setup':'setup-road';
+      else{bm=null;hideBuildHint();}
+    }else{
+      if(!isMyTurn()){bm=null;hideBuildHint();}
+    }
+    // 버려야 할 카드 확인
+    if(G.discardRequired?.[myColor]&&!G.discardDone?.[myColor]){
+      if(document.getElementById('moverlay').style.display==='none')
+        showDiscardModal(myColor,G.discardRequired[myColor],G);
+    }
+    updateSidebar();drawBoard();
+  });
+}
+
+/* ════ 헬퍼 ════ */
+function getMyRes(){if(!G?.players)return{};return G.players[myColor]?.resources||{};}
+function hasRes(cost){const r=getMyRes();return Object.entries(cost).every(([k,v])=>(r[k]||0)>=v);}
+function deductRes(s,color,cost){Object.entries(cost).forEach(([k,v])=>{s.players[color].resources[k]=(s.players[color].resources[k]||0)-v;});}
+function deepCopy(o){return JSON.parse(JSON.stringify(o));}
+function addLog(msg){const l=document.getElementById('glog');if(l)l.innerHTML=`<div>${msg}</div>`+l.innerHTML;}
+
+/* ════ 로비 ════ */
+window.confirmName=function(){
+  const n=document.getElementById('pname').value.trim();
+  if(!n){alert('이름을 입력하세요');return;}
+  myName=n;myColor=document.getElementById('pcolor').value;
+  document.getElementById('name-step').style.display='none';
+  document.getElementById('join-step').style.display='block';
+};
+window.createRoom=function(){
+  roomId=Math.random().toString(36).substr(2,4).toUpperCase();isHost=true;
+  document.getElementById('join-step').style.display='none';
+  document.getElementById('wait-step').style.display='block';
+  document.getElementById('rid-show').textContent=roomId;
+  document.getElementById('start-btn').style.display='block';
+  document.getElementById('wait-msg').style.display='none';
+  db.ref(`rooms/${roomId}/players/${myColor}`).set({name:myName,color:myColor});
+  listenPlayers();
+};
+window.joinRoom=function(){
+  const code=document.getElementById('rcode').value.trim().toUpperCase();
+  if(!code){alert('방 코드를 입력하세요');return;}
+  roomId=code;isHost=false;
+  db.ref(`rooms/${roomId}/players/${myColor}`).set({name:myName,color:myColor});
+  document.getElementById('join-step').style.display='none';
+  document.getElementById('wait-step').style.display='block';
+  document.getElementById('rid-show').textContent=roomId;
+  listenPlayers();
+};
+function listenPlayers(){
+  db.ref(`rooms/${roomId}/players`).on('value',snap=>{
+    const pl=snap.val()||{};
+    document.getElementById('wplayers').innerHTML=Object.values(pl).map(p=>`<li><span class="dot" style="background:${PC[p.color]||'#888'};box-shadow:0 0 6px ${PC[p.color]||'#888'}"></span>${p.name} (${p.color})</li>`).join('');
+  });
+  db.ref(`rooms/${roomId}/gameState`).on('value',snap=>{
+    const s=snap.val();
+    if(s?.phase&&document.getElementById('lobby').classList.contains('active'))startLocalGame(s);
+  });
+}
+window.startGame=function(){
+  if(!isHost)return;
+  db.ref(`rooms/${roomId}/players`).once('value',snap=>{
+    const pl=snap.val()||{};initGame(Object.keys(pl),pl);
+  });
+};
+window.startSolo=function(){
+  myName=document.getElementById('pname')?.value||'나';
+  myColor=document.getElementById('pcolor')?.value||'red';
+  roomId='solo';
+  const other=['blue','white','orange'].find(c=>c!==myColor)||'blue';
+  initGame([myColor,other],{[myColor]:{name:myName,color:myColor},[other]:{name:'상대',color:other}});
+};
+
+function initGame(playerKeys,playerData){
+  const order=shuffleArr([...playerKeys]);
+  const tiles=generateTiles();
+  const graph=buildGraph(tiles);
+  const portDefs=generatePorts();
+  applyPorts(graph.vertices,graph.vIdx,tiles,portDefs);
+  const deck=[...DEV_DECK_SRC];shuffleArr(deck);
+  const players={};
+  order.forEach(col=>{players[col]={name:playerData?playerData[col]?.name||col:col,color:col,resources:{wood:0,brick:0,sheep:0,wheat:0,ore:0},score:0,devCards:[],knightsUsed:0};});
+  const state={
+    phase:'setup',gamePhase:'roll',
+    tiles,vertices:graph.vertices,edges:graph.edges,portDefs,
+    players,turnOrder:order,
+    currentTurn:0,setupTurn:0,setupSubStep:0,_lastSettleVI:-1,
+    lastDice:[1,1],diceRolledBy:null,devDeck:deck,
+    longestRoadHolder:null,largestArmyHolder:null,longestRoadLen:0,
+    tradeOffer:null,roadBuildingLeft:0,discardRequired:{},discardDone:{},pendingRobber:false
+  };
+  if(roomId&&roomId!=='solo')db.ref(`rooms/${roomId}/gameState`).set(deepCopy(state));
+  else startLocalGame(state);
+}
+
+function startLocalGame(s){
+  G=s;
+  document.getElementById('lobby').classList.remove('active');
+  document.getElementById('game').classList.add('active');
+  resizeCanvas();
+  rebuildAdj();
+  _lastSetupTurnProcessed=-1;
+  if(G.phase==='setup'&&curSetupColor()===myColor){
+    bm='setup';showBuildHint('🏘 마을을 배치하세요');
+  }
+  if(roomId!=='solo')listenState();
+  updateSidebar();drawBoard();
+  addLog(`게임 시작! ${curSetupColor()}: 첫 마을을 배치하세요`);
+}
+
+window.addEventListener('resize',()=>{
+  if(!document.getElementById('game').classList.contains('active'))return;
+  resizeCanvas();drawBoard();
+});
 </script>
-</body>
-</html>
+</body></html>
